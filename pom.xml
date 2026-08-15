@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.echcherqaoui.orderflow</groupId>
+    <artifactId>orderflow</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>common/orderflow-grpc-contracts</module>
+
+        <module>services/entitlement-service</module>
+        <module>services/inventory-service</module>
+        <module>services/order-service</module>
+        <module>services/payment-service</module>
+    </modules>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         PROPERTIES
+         Centralized version control for JDK, BOMs, processors, and tools.
+    ════════════════════════════════════════════════════════════════ -->
+    <properties>
+        <!-- Build & Compiler Properties -->
+        <java.version>21</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Framework Dependencies BOM Versions -->
+        <spring-boot.version>4.0.7</spring-boot.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <spring-grpc.version>1.0.3</spring-grpc.version>
+
+        <!-- Annotation Processors -->
+        <lombok.version>1.18.46</lombok.version>
+        <mapstruct.version>1.6.3</mapstruct.version>
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+
+        <!-- Protobuf & gRPC Code Generation Versions -->
+        <grpc.version>1.69.1</grpc.version>
+        <protobuf.version>4.28.2</protobuf.version>
+        <protobuf-maven-plugin.version>5.1.7</protobuf-maven-plugin.version>
+        <annotations-api.version>6.0.53</annotations-api.version>
+
+        <!-- Security Overrides -->
+        <httpclient.version>4.5.14</httpclient.version> <!-- CVE-2020-13956 -->
+    </properties>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         DEPENDENCY MANAGEMENT
+         Manages RUNTIME/COMPILE library versions across child modules.
+         Note: Imported BOMs do NOT manage Maven plugin versions.
+    ════════════════════════════════════════════════════════════════ -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Boot BOM: Manages core Spring Boot starter versions -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Spring Cloud BOM: Manages distributed systems/gateway libraries -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Spring gRPC BOM: Manages gRPC core, stub, and transport runtime libraries -->
+            <dependency>
+                <groupId>org.springframework.grpc</groupId>
+                <artifactId>spring-grpc-dependencies</artifactId>
+                <version>${spring-grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Provides @javax.annotation.Generated for Protobuf/gRPC generated code -->
+            <dependency>
+                <groupId>org.apache.tomcat</groupId>
+                <artifactId>annotations-api</artifactId>
+                <version>${annotations-api.version}</version>
+                <scope>provided</scope>
+            </dependency>
+
+            <!-- Fix CVE-2020-13956 -->
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>${httpclient.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         BUILD & PLUGIN MANAGEMENT
+         Defines plugin configurations and versions once at the root.
+         Child modules inherit these settings when referencing the plugin.
+    ════════════════════════════════════════════════════════════════ -->
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!-- Spring Boot Executable Packaging Plugin -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                    <configuration>
+                        <excludes>
+                            <!-- Exclude Lombok from the final deployment fat-JAR -->
+                            <exclude>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                            </exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+
+                <!-- Java Compiler & Annotation Processing Pipeline -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven-compiler-plugin.version}</version>
+                    <configuration>
+                        <release>${java.version}</release>
+                        <annotationProcessorPaths>
+                            <!-- Lombok: Generates getters/setters/builders first -->
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                                <version>${lombok.version}</version>
+                            </path>
+                            <!-- MapStruct: Generates mapper implementations second -->
+                            <path>
+                                <groupId>org.mapstruct</groupId>
+                                <artifactId>mapstruct-processor</artifactId>
+                                <version>${mapstruct.version}</version>
+                            </path>
+                            <!-- Integration Bridge: Allows MapStruct to access Lombok-generated code -->
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok-mapstruct-binding</artifactId>
+                                <version>${lombok-mapstruct-binding.version}</version>
+                            </path>
+                        </annotationProcessorPaths>
+                    </configuration>
+                </plugin>
+
+                <plugin>
+                    <groupId>io.github.ascopes</groupId>
+                    <artifactId>protobuf-maven-plugin</artifactId>
+                    <version>${protobuf-maven-plugin.version}</version>
+                    <configuration>
+                        <protoc>${protobuf.version}</protoc>
+                        <plugins>
+                            <plugin kind="binary-maven">
+                                <groupId>io.grpc</groupId>
+                                <artifactId>protoc-gen-grpc-java</artifactId>
+                                <version>${grpc.version}</version>
+                            </plugin>
+                        </plugins>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

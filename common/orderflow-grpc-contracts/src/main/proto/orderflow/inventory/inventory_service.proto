@@ -1,0 +1,22 @@
+syntax = "proto3";
+package orderflow.inventory;
+option java_package = "com.echcherqaoui.orderflow.inventory.grpc";
+option java_outer_classname = "InventoryServiceProto";
+option java_multiple_files = true;
+
+service InventoryService {
+  // All-or-nothing across the whole item list:
+  // one missing/out-of-stock item aborts the entire reservation.
+  rpc ReserveInventory (ReserveInventoryRequest) returns (ReserveInventoryResponse);
+}
+
+message ReserveInventoryRequest {
+  string cart_id = 1;
+  repeated string item_ids = 2;
+}
+
+message ReserveInventoryResponse {
+  bool success = 1;
+  repeated string reserved_item_ids = 2;
+  string failure_reason = 3; // populated only when success = false
+}
