@@ -43,3 +43,17 @@ nbdist/
 .DS_Store
 Thumbs.db
 *.log
+
+# Local Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# Terraform local state files (NEVER commit)
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+
+# Local execution folder
+.terraform/
