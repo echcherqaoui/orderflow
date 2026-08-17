@@ -16,7 +16,7 @@
     <!-- ═══════════════════════════════════════════════════════════
         Project Metadata
     ════════════════════════════════════════════════════════════════ -->
-    <artifactId>orderflow-grpc-contracts</artifactId>
+    <artifactId>orderflow-grpc-contract</artifactId>
     <packaging>jar</packaging>
     <name>orderflow-grpc-contracts</name>
     <description>Protocol Buffer schemas and generated gRPC/Kafka stubs for the OrderFlow platform.</description>
