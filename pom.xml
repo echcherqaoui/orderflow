@@ -10,7 +10,12 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>common/orderflow-grpc-contracts</module>
+        <module>common/common-exceptions</module>
+        <module>common/common-kafka</module>
+        <module>common/common-outbox</module>
+        <module>common/common-security</module>
+        <module>common/orderflow-grpc-contract</module>
+        <module>common/orderflow-events-contract</module>
 
         <module>services/entitlement-service</module>
         <module>services/inventory-service</module>
@@ -19,8 +24,8 @@
     </modules>
 
     <!-- ═══════════════════════════════════════════════════════════
-         PROPERTIES
-         Centralized version control for JDK, BOMs, processors, and tools.
+        PROPERTIES
+        Centralized version control for JDK, BOMs, processors, and tools.
     ════════════════════════════════════════════════════════════════ -->
     <properties>
         <!-- Build & Compiler Properties -->
@@ -46,9 +51,41 @@
         <protobuf-maven-plugin.version>5.1.7</protobuf-maven-plugin.version>
         <annotations-api.version>6.0.53</annotations-api.version>
 
+        <!-- Confluent Schema Registry Protobuf Serializer for Kafka event serialization -->
+        <kafka-protobuf-serializer.version>7.7.7</kafka-protobuf-serializer.version>
+
         <!-- Security Overrides -->
         <httpclient.version>4.5.14</httpclient.version> <!-- CVE-2020-13956 -->
+        <avro.version>1.11.5</avro.version> <!-- CVE-2024-58103 -->
+        <wire-runtime-jvm.version>5.2.0</wire-runtime-jvm.version>  <!-- CVE-2025-33042 -->
     </properties>
+
+    <!-- ═══════════════════════════════════════════════════════════
+        REPOSITORIES
+        Confluent Maven repository for Schema Registry artifacts.
+    ════════════════════════════════════════════════════════════════ -->
+    <repositories>
+        <repository>
+            <id>confluent</id>
+            <name>Confluent Repository</name>
+            <url>https://packages.confluent.io/maven/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <!-- ═══════════════════════════════════════════════════════════
+        COMMON DEPENDENCIES
+         Inherited by every child module automatically.
+    ════════════════════════════════════════════════════════════════ -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
 
     <!-- ═══════════════════════════════════════════════════════════
          DEPENDENCY MANAGEMENT
@@ -84,6 +121,13 @@
                 <scope>import</scope>
             </dependency>
 
+            <!-- Internal modules -->
+            <dependency>
+                <groupId>com.echcherqaoui.orderflow</groupId>
+                <artifactId>common-exceptions</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
             <!-- Provides @javax.annotation.Generated for Protobuf/gRPC generated code -->
             <dependency>
                 <groupId>org.apache.tomcat</groupId>
@@ -92,11 +136,33 @@
                 <scope>provided</scope>
             </dependency>
 
+            <!-- Confluent Schema Registry serializer for Protobuf-encoded Kafka event topics -->
+            <dependency>
+                <groupId>io.confluent</groupId>
+                <artifactId>kafka-protobuf-serializer</artifactId>
+                <version>${kafka-protobuf-serializer.version}</version>
+            </dependency>
+
             <!-- Fix CVE-2020-13956 -->
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpclient</artifactId>
                 <version>${httpclient.version}</version>
+            </dependency>
+
+            <!-- Fix CVE-2024-58103 -->
+            <dependency>
+                <groupId>com.squareup.wire</groupId>
+                <artifactId>wire-runtime-jvm</artifactId>
+                <version>${wire-runtime-jvm.version}</version>
+            </dependency>
+
+            <!-- CVE-2025-33042 -->
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${avro.version}</version>
+                <scope>compile</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

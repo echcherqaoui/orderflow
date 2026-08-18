@@ -22,7 +22,12 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 ```text
 .
 ├── common/
-│   └── orderflow-grpc-contracts/   # Protobuf schemas & generated gRPC stubs
+│   ├── common-exceptions/           # Exception hierarchy & global HTTP/gRPC handlers
+│   ├── common-kafka/                # Polymorphic Protobuf event consumer dispatchers
+│   ├── common-outbox/               # Transactional outbox entity & repository contracts
+│   ├── common-security/             # HMAC payload verification utilities
+│   ├── orderflow-events-contract/   # Protobuf schemas & generated classes for Kafka
+│   └── orderflow-grpc-contract/     # Protobuf schemas & generated stubs for gRPC
 ├── docker/
 │   ├── docker-compose.infra.yml     # PostgreSQL, Kafka, Schema Registry, Connect
 │   ├── docker-compose.services.yml  # Application container definitions
@@ -43,3 +48,33 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 ├── Makefile                         # Automation commands
 ├── pom.xml                          # Root parent POM
 └── README.md
+```
+
+---
+
+## 🧩 Shared Common Modules
+
+The architecture relies on lightweight shared modules located under `common/`. Downstream microservices inherit these contracts and utility layers.
+
+| Module | Artifact ID | Description |
+| :--- | :--- | :--- |
+| **Exceptions** | `common-exceptions` | Unified business exception hierarchy (`BaseCustomException`), error codes (`CommonErrorCode`), and `@RestControllerAdvice` global handlers |
+| **Kafka** | `common-kafka` | Polymorphic `AbstractEventConsumer` dispatcher and strongly-typed Protobuf `EventHandler` registry |
+| **Outbox** | `common-outbox` | Outbox pattern persistence model and Debezium CDC event publisher contracts |
+| **Security** | `common-security` | HMAC signature verification service (`HmacSignatureService`) for payload integrity |
+| **Events Contract** | `orderflow-events-contract` | Protobuf event schemas and auto-generated Java classes for domain Kafka events |
+| **gRPC Contract** | `orderflow-grpc-contract` | Protobuf definitions and generated stubs for synchronous inter-service gRPC calls |
+
+---
+
+## 🛠️ Building Shared Modules Locally
+
+Because shared modules are nested under the `common/` directory, run builds from the project root using relative reactor paths:
+
+```bash
+# Build and install ALL common modules into local .m2
+mvn clean install -pl common/common-exceptions,common/common-kafka,common/common-outbox,common/common-security,common/orderflow-events-contract,common/orderflow-grpc-contract -am -DskipTests
+
+# Build a single module with its upstream dependencies (e.g., common-kafka)
+mvn clean install -pl common/common-kafka -am -DskipTests
+```

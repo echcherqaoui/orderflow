@@ -1,0 +1,3 @@
+com.echcherqaoui.orderflow.exception.autoconfigure.CommonExceptionsAutoConfiguration
+com.echcherqaoui.orderflow.exception.autoconfigure.GrpcClientExceptionAutoConfiguration
+com.echcherqaoui.orderflow.exception.autoconfigure.GrpcServerExceptionAutoConfiguration
