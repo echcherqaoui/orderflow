@@ -16,7 +16,5 @@ message ReserveInventoryRequest {
 }
 
 message ReserveInventoryResponse {
-  bool success = 1;
-  repeated string reserved_item_ids = 2;
-  string failure_reason = 3; // populated only when success = false
+  repeated string reserved_item_ids = 1;
 }

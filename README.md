@@ -37,7 +37,7 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 │   └── kafka-connect.Dockerfile     # Custom Debezium Kafka Connect image
 ├── services/
 │   ├── entitlement-service/         # Entitlement management microservice
-│   ├── inventory-service/           # Inventory reservation microservice
+│   ├── inventory-service/           # Inventory stock, reservation engine & background sweeper
 │   ├── order-service/               # Order orchestration microservice
 │   └── payment-service/             # Payment processing microservice
 ├── terraform/                       # Kafka topic definitions & provider setup
@@ -49,6 +49,28 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 ├── pom.xml                          # Root parent POM
 └── README.md
 ```
+
+---
+
+## ⚡ Microservices & Port Matrix
+
+| Service | REST Port | gRPC Port | Database | Primary Responsibilities |
+| :--- |:----------|:----------| :--- | :--- |
+| **Inventory Service** | `8082`    | `9082`    | `inventory_db` | Item catalog management, pessimistic stock reservation engine, scheduled background stock sweeper, gRPC endpoints |
+| **Order Service** | `----`    | `----`    | `order_db` |  |
+| **Payment Service** | `----`    | `----`    | `payment_db` |  |
+| **Entitlement Service** | `----`    | `----`    | `entitlement_db` |  |
+
+---
+
+## 🏬 Service Deep-Dive: Inventory Service
+
+The **Inventory Service** handles high-concurrency stock tracking and reservation management:
+
+* **Pessimistic Reservation Engine:** Reserves stock under high concurrency, preventing overselling during checkout flows.
+* **Automated Expiration Sweeper (`ReservationSweeper`):** A fixed-delay task (running every 30s) that recovers stock from orphaned or timed-out `PENDING` reservations in batches using `SKIP LOCKED` to prevent DB row contention across multi-instance deployments.
+* **Batch Stock Increments:** Optimized repository-level SQL batch operations for fast inventory restoration.
+* **gRPC Capabilities:** Exposes high-throughput Protobuf stubs (`inventory_service.proto`) for inter-service synchronous checks.
 
 ---
 

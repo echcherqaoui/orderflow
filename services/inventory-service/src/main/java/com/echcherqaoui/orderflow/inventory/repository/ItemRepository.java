@@ -9,7 +9,9 @@ import org.springframework.data.repository.query.Param;
 import java.util.Set;
 import java.util.UUID;
 
-public interface ItemRepository extends JpaRepository<Item, UUID> {
+public interface ItemRepository extends JpaRepository<Item, UUID>, ItemRepositoryCustom {
+
+    boolean existsByName(String name);
 
     @Modifying
     @Query("""
@@ -19,4 +21,11 @@ public interface ItemRepository extends JpaRepository<Item, UUID> {
           """)
     int decrementStockBatch(@Param("itemIds") Set<UUID> itemIds);
 
+    @Modifying
+    @Query("""
+       UPDATE Item i
+       SET i.remainingUnits = i.remainingUnits + 1
+           WHERE i.id IN :itemIds
+      """)
+    void incrementStockBatch(@Param("itemIds") Set<UUID> itemIds);
 }

@@ -15,7 +15,6 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 import java.util.UUID;
@@ -27,7 +26,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
-@Transactional
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class ItemEntityConstraintIT extends AbstractIntegrationTest {
 
@@ -166,13 +164,11 @@ class ItemEntityConstraintIT extends AbstractIntegrationTest {
     @DisplayName("Demonstrate schema gap: total_early_access_units <= 0 is rejected by Bean Validation but bypasses DB check")
     void totalUnitsZero_bypassesDb_becauseNoCheckConstraintExists() {
         // Native SQL bypasses @Min(1) Bean Validation because there is no DB CHECK constraint for total_early_access_units
-        assertThatCode(() -> {
-            entityManager.createNativeQuery("""
-                        INSERT INTO items (id, name, price_cents, total_early_access_units, remaining_units, created_at, updated_at)
-                        VALUES (gen_random_uuid(), :name, 1000, 0, 0, now(), now())
-                        """)
-                  .setParameter("name", "zero-total-" + UUID.randomUUID())
-                  .executeUpdate();
-        }).doesNotThrowAnyException();
+        assertThatCode(() -> entityManager.createNativeQuery("""
+                    INSERT INTO items (id, name, price_cents, total_early_access_units, remaining_units, created_at, updated_at)
+                    VALUES (gen_random_uuid(), :name, 1000, 0, 0, now(), now())
+                    """)
+              .setParameter("name", "zero-total-" + UUID.randomUUID())
+              .executeUpdate()).doesNotThrowAnyException();
     }
 }
