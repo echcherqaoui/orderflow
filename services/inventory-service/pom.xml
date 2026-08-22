@@ -22,6 +22,17 @@
     <description>Inventory Service handling stock availability, reservations, and fulfillment for the OrderFlow platform.</description>
 
     <dependencies>
+        <!-- Internal modules -->
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>common-exceptions</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>orderflow-grpc-contract</artifactId>
+        </dependency>
+
         <!-- Service Discovery -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
@@ -68,11 +79,6 @@
         </dependency>
 
         <!-- ── gRPC server  -->
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-services</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>org.springframework.grpc</groupId>
             <artifactId>spring-grpc-server-spring-boot-starter</artifactId>

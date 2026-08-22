@@ -1,0 +1,31 @@
+server:
+  port: ${INVENTORY_SERVICE_PORT:8082}
+
+eureka:
+  client:
+    enabled: false
+
+spring:
+  grpc:
+    server:
+      port: ${INVENTORY_SERVICE_GRPC_PORT:9092}
+      reflection:
+        enabled: true
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${PG_PORT:5432}/${INVENTORY_DB:inventory_db}
+    username: ${PG_USER:user}
+    password: ${PG_PASSWORD:pass}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.echcherqaoui.orderflow.inventory: INFO

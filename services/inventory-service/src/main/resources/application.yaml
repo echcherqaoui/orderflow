@@ -1,3 +1,13 @@
 spring:
   application:
     name: inventory-service
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  grpc:
+    server:
+      health:
+        enabled: true
+      reflection:
+        enabled: false

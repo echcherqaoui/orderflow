@@ -1,4 +1,8 @@
 spring:
+  grpc:
+    server:
+      port: 0        # Uses dynamic ephemeral port if server is required
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -6,9 +10,10 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
   # ── Database Migration (Flyway) ─────────────────────────────
   flyway:
-    baseline-on-migrate: false
     enabled: true
+    baseline-on-migrate: false
     locations:
       - classpath:db/migration
