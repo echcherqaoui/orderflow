@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.inventory.service.impl;
 import com.echcherqaoui.orderflow.inventory.exception.domain.InvalidReservationException;
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
 import com.echcherqaoui.orderflow.inventory.model.InventoryReservation;
+import com.echcherqaoui.orderflow.inventory.projection.ItemSummaryDto;
 import com.echcherqaoui.orderflow.inventory.repository.InventoryReservationRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -49,24 +50,41 @@ class ReservationServiceImplTest {
     private static final UUID ITEM_ID_1 = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID ITEM_ID_2 = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID ITEM_ID_3 = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final long TOTAL_PRICE_CENTS = 5000L;
+
+    private ItemSummaryDto itemSummary(long count, long priceCents) {
+        return new ItemSummaryDto() {
+            @Override
+            public Long getCount() {
+                return count;
+            }
+
+            @Override
+            public Long getTotalPriceCents() {
+                return priceCents;
+            }
+        };
+    }
 
     @Nested
     @DisplayName("reserve(String, Set<UUID>)")
     class ReserveMethod {
 
         @Test
-        @DisplayName("Should create new reservations successfully when stock is available and no prior reservation exists")
+        @DisplayName("Should create new reservations and return total price when stock is available and no prior reservation exists")
         void reserve_NewCart_Success() {
             Set<UUID> requestedItems = Set.of(ITEM_ID_1, ITEM_ID_2);
 
+            when(itemRepository.getItemSummary(requestedItems))
+                  .thenReturn(itemSummary(2, TOTAL_PRICE_CENTS));
             when(reservationRepository.findByCartIdAndStatus(CART_ID, PENDING))
                   .thenReturn(Collections.emptyList());
-
             when(itemRepository.decrementStockBatch(requestedItems))
                   .thenReturn(2);
 
-            reservationService.reserve(CART_ID, requestedItems);
+            long totalPrice = reservationService.reserve(CART_ID, requestedItems);
 
+            assertThat(totalPrice).isEqualTo(TOTAL_PRICE_CENTS);
             verify(itemRepository).decrementStockBatch(requestedItems);
             verify(reservationRepository).saveAll(reservationsCaptor.capture());
 
@@ -81,10 +99,42 @@ class ReservationServiceImplTest {
         }
 
         @Test
+        @DisplayName("Should throw OutOfStockException when summary item count is less than requested size (catalog missing item)")
+        void reserve_ItemSummaryCountMismatch_ThrowsException() {
+            Set<UUID> requestedItems = Set.of(ITEM_ID_1, ITEM_ID_2);
+
+            when(itemRepository.getItemSummary(requestedItems))
+                  .thenReturn(itemSummary(1, 2500L));
+
+            assertThatThrownBy(() -> reservationService.reserve(CART_ID, requestedItems))
+                  .isInstanceOf(OutOfStockException.class);
+
+            verify(reservationRepository, never()).findByCartIdAndStatus(any(), any());
+            verify(itemRepository, never()).decrementStockBatch(any());
+            verify(reservationRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("Should throw OutOfStockException when item summary query returns null")
+        void reserve_ItemSummaryNull_ThrowsException() {
+            Set<UUID> requestedItems = Set.of(ITEM_ID_1, ITEM_ID_2);
+
+            when(itemRepository.getItemSummary(requestedItems)).thenReturn(null);
+
+            assertThatThrownBy(() -> reservationService.reserve(CART_ID, requestedItems))
+                  .isInstanceOf(OutOfStockException.class);
+
+            verify(itemRepository, never()).decrementStockBatch(any());
+            verify(reservationRepository, never()).saveAll(any());
+        }
+
+        @Test
         @DisplayName("Should throw OutOfStockException when stock decrement count is less than requested size")
         void reserve_NewCart_InsufficientStock_ThrowsException() {
             Set<UUID> requestedItems = Set.of(ITEM_ID_1, ITEM_ID_2);
 
+            when(itemRepository.getItemSummary(requestedItems))
+                  .thenReturn(itemSummary(2, TOTAL_PRICE_CENTS));
             when(reservationRepository.findByCartIdAndStatus(CART_ID, PENDING))
                   .thenReturn(Collections.emptyList());
             when(itemRepository.decrementStockBatch(requestedItems))
@@ -97,7 +147,7 @@ class ReservationServiceImplTest {
         }
 
         @Test
-        @DisplayName("Should extend TTL idempotently with DEFAULT_TTL_SECONDS when exact same items are requested")
+        @DisplayName("Should extend TTL idempotently and return total price when exact same items are requested")
         void reserve_IdempotentReplay_ExtendsTtlOnly() {
             Set<UUID> requestedItems = Set.of(ITEM_ID_1, ITEM_ID_2);
             List<InventoryReservation> existing = List.of(
@@ -105,10 +155,13 @@ class ReservationServiceImplTest {
                   new InventoryReservation().setId(UUID.randomUUID()).setCartId(CART_ID).setItemId(ITEM_ID_2).setStatus(PENDING)
             );
 
+            when(itemRepository.getItemSummary(requestedItems))
+                  .thenReturn(itemSummary(2, TOTAL_PRICE_CENTS));
             when(reservationRepository.findByCartIdAndStatus(CART_ID, PENDING)).thenReturn(existing);
 
-            reservationService.reserve(CART_ID, requestedItems);
+            long totalPrice = reservationService.reserve(CART_ID, requestedItems);
 
+            assertThat(totalPrice).isEqualTo(TOTAL_PRICE_CENTS);
             verify(reservationRepository).updateExpiresAtByCartId(eq(CART_ID), any(Instant.class), eq(PENDING));
             verify(itemRepository, never()).decrementStockBatch(any());
             verify(itemRepository, never()).incrementStockBatch(any());
@@ -129,11 +182,14 @@ class ReservationServiceImplTest {
                   .setItemId(ITEM_ID_1)
                   .setStatus(PENDING);
 
+            when(itemRepository.getItemSummary(newItems))
+                  .thenReturn(itemSummary(1, 3000L));
             when(reservationRepository.findByCartIdAndStatus(CART_ID, PENDING)).thenReturn(List.of(existing));
             when(itemRepository.decrementStockBatch(newItems)).thenReturn(1);
 
-            reservationService.reserve(CART_ID, newItems);
+            long totalPrice = reservationService.reserve(CART_ID, newItems);
 
+            assertThat(totalPrice).isEqualTo(3000L);
             verify(itemRepository).incrementStockBatch(oldItems);
             verify(reservationRepository).deleteAllByIdInBatch(Set.of(oldResId));
             verify(itemRepository).decrementStockBatch(newItems);
@@ -155,11 +211,14 @@ class ReservationServiceImplTest {
                   new InventoryReservation().setId(oldResId2).setCartId(CART_ID).setItemId(ITEM_ID_2).setStatus(PENDING)
             );
 
+            when(itemRepository.getItemSummary(newItems))
+                  .thenReturn(itemSummary(2, 7000L));
             when(reservationRepository.findByCartIdAndStatus(CART_ID, PENDING)).thenReturn(existing);
             when(itemRepository.decrementStockBatch(newItems)).thenReturn(2);
 
-            reservationService.reserve(CART_ID, newItems);
+            long totalPrice = reservationService.reserve(CART_ID, newItems);
 
+            assertThat(totalPrice).isEqualTo(7000L);
             verify(itemRepository).incrementStockBatch(oldItems);
             verify(reservationRepository).deleteAllByIdInBatch(Set.of(oldResId1, oldResId2));
             verify(itemRepository).decrementStockBatch(newItems);
@@ -179,6 +238,8 @@ class ReservationServiceImplTest {
                   .setItemId(ITEM_ID_1)
                   .setStatus(PENDING);
 
+            when(itemRepository.getItemSummary(newItems))
+                  .thenReturn(itemSummary(1, 3000L));
             when(reservationRepository.findByCartIdAndStatus(CART_ID, PENDING)).thenReturn(List.of(existing));
             when(itemRepository.decrementStockBatch(newItems)).thenReturn(0);
 
@@ -198,6 +259,7 @@ class ReservationServiceImplTest {
             assertThatThrownBy(() -> reservationService.reserve(CART_ID, emptySet))
                   .isInstanceOf(InvalidReservationException.class);
 
+            verify(itemRepository, never()).getItemSummary(any());
             verify(reservationRepository, never()).findByCartIdAndStatus(any(), any());
             verify(itemRepository, never()).decrementStockBatch(any());
             verify(reservationRepository, never()).saveAll(any());

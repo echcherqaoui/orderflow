@@ -8,7 +8,7 @@ eureka:
 spring:
   grpc:
     server:
-      port: ${INVENTORY_SERVICE_GRPC_PORT:9092}
+      port: ${INVENTORY_SERVICE_GRPC_PORT:9082}
       reflection:
         enabled: true
 
