@@ -31,10 +31,11 @@ public class InventoryGrpcService extends InventoryServiceGrpc.InventoryServiceI
                   .collect(Collectors.toSet());
 
             //  Execute stock decrement & reservation persistence
-            reservationService.reserve(request.getCartId(), itemIds);
+            long totalPriceCents = reservationService.reserve(request.getCartId(), itemIds);
 
             ReserveInventoryResponse response = ReserveInventoryResponse.newBuilder()
                   .addAllReservedItemIds(itemIds.stream().map(UUID::toString).toList())
+                  .setTotalPriceCents(totalPriceCents)
                   .build();
 
             responseObserver.onNext(response);

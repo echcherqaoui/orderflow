@@ -52,15 +52,15 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
 
         cartId = "cart-" + UUID.randomUUID();
 
-        item1 = itemRepository.saveAndFlush(newItem(10, 10));
-        item2 = itemRepository.saveAndFlush(newItem(10, 10));
-        item3 = itemRepository.saveAndFlush(newItem(10, 10));
+        item1 = itemRepository.saveAndFlush(newItem(10, 10, 1000));
+        item2 = itemRepository.saveAndFlush(newItem(10, 10, 1500));
+        item3 = itemRepository.saveAndFlush(newItem(10, 10, 2000));
     }
 
-    private Item newItem(int total, int remaining) {
+    private Item newItem(int total, int remaining, long priceCents) {
         return new Item()
               .setName("test-item-" + UUID.randomUUID())
-              .setPriceCents(1000)
+              .setPriceCents(priceCents)
               .setTotalEarlyAccessUnits(total)
               .setRemainingUnits(remaining);
     }
@@ -82,11 +82,13 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
         }
 
         @Test
-        @DisplayName("successful reservation decrements stock and creates PENDING reservation rows")
+        @DisplayName("successful reservation decrements stock, creates PENDING reservations, and returns total price")
         void reserve_successfulNewReservation() {
             Set<UUID> requestedItemIds = Set.of(item1.getId(), item2.getId());
 
-            reservationService.reserve(cartId, requestedItemIds);
+            long totalPrice = reservationService.reserve(cartId, requestedItemIds);
+
+            assertThat(totalPrice).isEqualTo(2500L);
 
             Item reloaded1 = itemRepository.findById(item1.getId()).orElseThrow();
             Item reloaded2 = itemRepository.findById(item2.getId()).orElseThrow();
@@ -98,9 +100,7 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
 
             List<InventoryReservation> reservations = reservationRepository.findByCartIdAndStatus(cartId, ReservationStatus.PENDING);
 
-            assertThat(reservations)
-                  .hasSize(2);
-
+            assertThat(reservations).hasSize(2);
             assertThat(reservations)
                   .extracting(InventoryReservation::getItemId)
                   .containsExactlyInAnyOrder(item1.getId(), item2.getId());
@@ -114,7 +114,7 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
         @Test
         @DisplayName("insufficient stock on any item throws OutOfStockException and rolls back transaction")
         void reserve_outOfStock_throwsExceptionAndRollsBack() {
-            Item outOfStockItem = itemRepository.saveAndFlush(newItem(10, 0));
+            Item outOfStockItem = itemRepository.saveAndFlush(newItem(10, 0, 500));
             Set<UUID> requestedItemIds = Set.of(item1.getId(), outOfStockItem.getId());
 
             assertThatThrownBy(() -> reservationService.reserve(cartId, requestedItemIds))
@@ -139,16 +139,18 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
         }
 
         @Test
-        @DisplayName("subsequent reservation with identical items extends TTL without double-decrementing stock")
+        @DisplayName("subsequent reservation with identical items extends TTL and returns total price without double-decrementing stock")
         void reserve_idempotentReplay_extendsTtlOnly() {
             Set<UUID> requestedItemIds = Set.of(item1.getId(), item2.getId());
 
-            reservationService.reserve(cartId, requestedItemIds);
+            long initialPrice = reservationService.reserve(cartId, requestedItemIds);
+            assertThat(initialPrice).isEqualTo(2500L);
 
             List<InventoryReservation> initialReservations = reservationRepository.findByCartIdAndStatus(cartId, ReservationStatus.PENDING);
             Instant initialExpiry = initialReservations.getFirst().getExpiresAt();
 
-            reservationService.reserve(cartId, requestedItemIds);
+            long replayPrice = reservationService.reserve(cartId, requestedItemIds);
+            assertThat(replayPrice).isEqualTo(2500L);
 
             assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
             assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
@@ -160,13 +162,14 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
         }
 
         @Test
-        @DisplayName("changing item set releases previous reservations, restores old stock, and reserves new set")
+        @DisplayName("changing item set releases previous reservations, restores old stock, and reserves new set returning new price")
         void reserve_cancelAndReplace_completeSetChange_success() {
-            reservationService.reserve(cartId, Set.of(item1.getId()));
-
+            long price1 = reservationService.reserve(cartId, Set.of(item1.getId()));
+            assertThat(price1).isEqualTo(1000L);
             assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
 
-            reservationService.reserve(cartId, Set.of(item2.getId()));
+            long price2 = reservationService.reserve(cartId, Set.of(item2.getId()));
+            assertThat(price2).isEqualTo(1500L);
 
             assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(10);
             assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
@@ -178,11 +181,13 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
         }
 
         @Test
-        @DisplayName("partial item set change correctly adjusts stock for removed, retained, and added items")
+        @DisplayName("partial item set change correctly adjusts stock for removed, retained, and added items and calculates total price")
         void reserve_cancelAndReplace_partialOverlap_success() {
-            reservationService.reserve(cartId, Set.of(item1.getId(), item2.getId()));
+            long price1 = reservationService.reserve(cartId, Set.of(item1.getId(), item2.getId()));
+            assertThat(price1).isEqualTo(2500L);
 
-            reservationService.reserve(cartId, Set.of(item2.getId(), item3.getId()));
+            long price2 = reservationService.reserve(cartId, Set.of(item2.getId(), item3.getId()));
+            assertThat(price2).isEqualTo(3500L);
 
             assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(10);
             assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
@@ -199,7 +204,7 @@ class ReservationServiceImplIT extends AbstractIntegrationTest {
         void reserve_cancelAndReplace_outOfStockNewItem_rollsBackEntirely() {
             reservationService.reserve(cartId, Set.of(item1.getId()));
 
-            Item outOfStockItem = itemRepository.saveAndFlush(newItem(10, 0));
+            Item outOfStockItem = itemRepository.saveAndFlush(newItem(10, 0, 500));
             Set<UUID> outOfStockItemIds = Set.of(outOfStockItem.getId());
 
             assertThatThrownBy(() -> reservationService.reserve(cartId, outOfStockItemIds))

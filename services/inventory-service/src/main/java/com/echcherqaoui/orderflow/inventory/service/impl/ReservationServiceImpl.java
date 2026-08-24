@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.inventory.service.impl;
 import com.echcherqaoui.orderflow.inventory.exception.domain.InvalidReservationException;
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
 import com.echcherqaoui.orderflow.inventory.model.InventoryReservation;
+import com.echcherqaoui.orderflow.inventory.projection.ItemSummaryDto;
 import com.echcherqaoui.orderflow.inventory.repository.InventoryReservationRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
 import com.echcherqaoui.orderflow.inventory.service.ReservationService;
@@ -51,9 +52,16 @@ public class ReservationServiceImpl implements ReservationService {
      */
     @Transactional
     @Override
-    public void reserve(@NonNull String cartId, @NonNull Set<UUID> requestedItemIds) {
+    public long reserve(@NonNull String cartId, @NonNull Set<UUID> requestedItemIds) {
         if (requestedItemIds.isEmpty())
             throw new InvalidReservationException(EMPTY_ITEM_LIST);
+
+        ItemSummaryDto summary = itemRepository.getItemSummary(requestedItemIds);
+
+        if (summary == null || summary.getCount() == null || summary.getCount() != requestedItemIds.size())
+            throw new OutOfStockException(ITEMS_OUT_OF_STOCK);
+        
+        long totalPriceCents = summary.getTotalPriceCents();
 
         List<InventoryReservation> existingReservations = reservationRepository.findByCartIdAndStatus(cartId, PENDING);
 
@@ -66,7 +74,7 @@ public class ReservationServiceImpl implements ReservationService {
             if (reservedItemIds.equals(requestedItemIds)) {
                 this.extendTtl(cartId, DEFAULT_TTL_SECONDS);
 
-                return;
+                return totalPriceCents;
             }
 
             Set<UUID> reservationIds = existingReservations.stream()
@@ -93,6 +101,7 @@ public class ReservationServiceImpl implements ReservationService {
               .toList();
 
         reservationRepository.saveAll(newReservations);
-    }
 
+        return totalPriceCents;
+    }
 }

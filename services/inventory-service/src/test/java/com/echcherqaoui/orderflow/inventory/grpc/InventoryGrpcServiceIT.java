@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class InventoryGrpcServiceIT extends AbstractIntegrationTest {
@@ -50,11 +51,15 @@ class InventoryGrpcServiceIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("reserveInventory converts UUIDs and returns reserved item IDs on success")
+    @DisplayName("reserveInventory converts UUIDs and returns reserved item IDs and total price on success")
     void reserveInventory_success() {
         String cartId = "cart-100";
         UUID itemId1 = UUID.randomUUID();
         UUID itemId2 = UUID.randomUUID();
+        long totalPriceCents = 5000L;
+
+        when(reservationService.reserve(cartId, Set.of(itemId1, itemId2)))
+              .thenReturn(totalPriceCents);
 
         ReserveInventoryRequest request = ReserveInventoryRequest.newBuilder()
               .setCartId(cartId)
@@ -65,6 +70,7 @@ class InventoryGrpcServiceIT extends AbstractIntegrationTest {
 
         assertThat(response.getReservedItemIdsList())
               .containsExactlyInAnyOrder(itemId1.toString(), itemId2.toString());
+        assertThat(response.getTotalPriceCents()).isEqualTo(totalPriceCents);
 
         verify(reservationService).reserve(cartId, Set.of(itemId1, itemId2));
     }
@@ -114,6 +120,8 @@ class InventoryGrpcServiceIT extends AbstractIntegrationTest {
     @DisplayName("reserveInventory handles empty item list successfully")
     void reserveInventory_emptyItemIds_success() {
         String cartId = "cart-100";
+        when(reservationService.reserve(cartId, Set.of())).thenReturn(0L);
+
         ReserveInventoryRequest request = ReserveInventoryRequest.newBuilder()
               .setCartId(cartId)
               .build();
@@ -121,6 +129,7 @@ class InventoryGrpcServiceIT extends AbstractIntegrationTest {
         ReserveInventoryResponse response = blockingStub.reserveInventory(request);
 
         assertThat(response.getReservedItemIdsList()).isEmpty();
+        assertThat(response.getTotalPriceCents()).isZero();
         verify(reservationService).reserve(cartId, Set.of());
     }
 }

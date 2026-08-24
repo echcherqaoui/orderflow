@@ -17,4 +17,5 @@ message ReserveInventoryRequest {
 
 message ReserveInventoryResponse {
   repeated string reserved_item_ids = 1;
+  int64 total_price_cents = 2;
 }
