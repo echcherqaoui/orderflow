@@ -5,7 +5,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @EqualsAndHashCode
@@ -14,5 +14,5 @@ import java.util.UUID;
 public class OutboxEventId implements Serializable {
     
     private UUID id;
-    private OffsetDateTime createdAt;
+    private Instant createdAt;
 }

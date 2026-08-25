@@ -1,0 +1,30 @@
+package com.echcherqaoui.orderflow.order;
+
+import org.jspecify.annotations.NonNull;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+
+/**
+ * Shared Testcontainers Postgres instance for every order persistence test.
+ */
+@ActiveProfiles("test")
+public abstract class AbstractIntegrationTest {
+
+    // Singleton static container across all subclasses
+    protected static final org.testcontainers.postgresql.PostgreSQLContainer POSTGRES = new PostgreSQLContainer(DockerImageName.parse("postgres:17.0"))
+          .withDatabaseName("order_db");
+
+    static {
+        POSTGRES.start(); // Started once when the abstract class is loaded
+    }
+
+    @DynamicPropertySource
+    static void configureProperties(@NonNull DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
+}

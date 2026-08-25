@@ -128,6 +128,36 @@
                 <version>${project.version}</version>
             </dependency>
 
+            <dependency>
+                <groupId>com.echcherqaoui.orderflow</groupId>
+                <artifactId>common-kafka</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.echcherqaoui.orderflow</groupId>
+                <artifactId>common-outbox</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.echcherqaoui.orderflow</groupId>
+                <artifactId>common-security</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.echcherqaoui.orderflow</groupId>
+                <artifactId>orderflow-events-contract</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.echcherqaoui.orderflow</groupId>
+                <artifactId>orderflow-grpc-contract</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
             <!-- Provides @javax.annotation.Generated for Protobuf/gRPC generated code -->
             <dependency>
                 <groupId>org.apache.tomcat</groupId>
