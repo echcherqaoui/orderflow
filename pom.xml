@@ -54,6 +54,9 @@
         <!-- Confluent Schema Registry Protobuf Serializer for Kafka event serialization -->
         <kafka-protobuf-serializer.version>7.7.7</kafka-protobuf-serializer.version>
 
+        <!-- Schema Registry endpoint used by the plugin for schema registration -->
+        <schema.registry.url>http://localhost:8181</schema.registry.url>
+
         <!-- Security Overrides -->
         <httpclient.version>4.5.14</httpclient.version> <!-- CVE-2020-13956 -->
         <avro.version>1.11.5</avro.version> <!-- CVE-2024-58103 -->
@@ -203,6 +206,27 @@
          Child modules inherit these settings when referencing the plugin.
     ════════════════════════════════════════════════════════════════ -->
     <build>
+
+        <plugins>
+            <!-- Dynamically resolves artifact paths to set mockito-core as a JVM javaagent during unit tests -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals><goal>properties</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+
         <pluginManagement>
             <plugins>
                 <!-- Spring Boot Executable Packaging Plugin -->
