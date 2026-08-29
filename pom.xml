@@ -47,7 +47,7 @@
 
         <!-- Protobuf & gRPC Code Generation Versions -->
         <grpc.version>1.69.1</grpc.version>
-        <protobuf.version>4.28.2</protobuf.version>
+        <protobuf.version>3.25.5</protobuf.version>
         <protobuf-maven-plugin.version>5.1.7</protobuf-maven-plugin.version>
         <annotations-api.version>6.0.53</annotations-api.version>
 
