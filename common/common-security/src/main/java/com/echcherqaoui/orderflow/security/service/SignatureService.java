@@ -12,7 +12,7 @@ public interface SignatureService {
      * @param payloadParts the critical fields required for integrity verification (e.g., orderId, amount)
      * @return hex-encoded signature string
      */
-    String sign(String ... payloadParts);
+    String sign(Object ... payloadParts);
 
     /**
      * Verifies that a received signature matches the computed HMAC-SHA256 over the payload parts.
@@ -22,5 +22,5 @@ public interface SignatureService {
      * @param payloadParts the critical fields used to reconstruct the expected signature
      * @return {@code true} if the signature is valid, {@code false} otherwise
      */
-    boolean verify(String signature, String ... payloadParts);
+    boolean verify(String signature, Object ... payloadParts);
 }

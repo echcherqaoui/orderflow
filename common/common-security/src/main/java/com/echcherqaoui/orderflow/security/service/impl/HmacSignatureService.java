@@ -51,18 +51,21 @@ public class HmacSignatureService implements SignatureService {
     }
 
     @NonNull
-    private String canonicalize(String... payloadParts) {
+    private String canonicalize(Object... payloadParts) {
         if (payloadParts == null)
             throw new IllegalArgumentException("payloadParts array must not be null");
 
         StringBuilder sb = new StringBuilder();
-        for (String p : payloadParts)
-            sb.append(p.length()).append(':').append(p);
+
+        for (Object p : payloadParts) {
+            String str = String.valueOf(p);
+            sb.append(str.length()).append(':').append(str);
+        }
 
         return sb.toString();
     }
 
-    private void validatePayloadParts(String[] payloadParts) {
+    private void validatePayloadParts(Object[] payloadParts) {
         if (payloadParts == null)
             throw new IllegalArgumentException("payloadParts array must not be null");
 
@@ -75,14 +78,14 @@ public class HmacSignatureService implements SignatureService {
     }
 
     @Override
-    public String sign(String... payloadParts) {
+    public String sign(Object... payloadParts) {
         validatePayloadParts(payloadParts);
 
         return computeHmac(canonicalize(payloadParts));
     }
 
     @Override
-    public boolean verify(String signature, String... payloadParts) {
+    public boolean verify(String signature, Object... payloadParts) {
         if (signature == null || signature.isBlank())
             return false;
 

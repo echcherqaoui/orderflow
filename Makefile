@@ -93,10 +93,10 @@ topics-apply: # Create Kafka topics via Terraform (requires Kafka running)
 
 .PHONY: register-schemas
 register-schemas: # Register Protobuf schemas to Schema Registry (requires Schema Registry running)
-	./mvnw -pl common/contracts \
+	./mvnw -pl common/orderflow-events-contract \
 		-P register-schemas \
 		io.confluent:kafka-schema-registry-maven-plugin:$(CONFLUENT_VERSION):register \
-		-Dschema.registry.url=$(SC_REGISTRY_HOST_URL)
+		-Dschema.registry.url=$(SC_REGISTRY_URL)
 	@echo "✓ Schemas registered"
 
 .PHONY: register-connectors

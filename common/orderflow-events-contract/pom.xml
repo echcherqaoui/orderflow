@@ -27,6 +27,12 @@
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
         </dependency>
+
+        <!-- Confluent Protobuf Serializer for Schema Registry -->
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-protobuf-serializer</artifactId>
+        </dependency>
     </dependencies>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -47,4 +53,52 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>register-schemas</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>io.confluent</groupId>
+                        <artifactId>kafka-schema-registry-maven-plugin</artifactId>
+                        <version>${kafka-protobuf-serializer.version}</version>
+                        <configuration>
+                            <schemaRegistryUrls>
+                                <schemaRegistryUrl>${schema.registry.url}</schemaRegistryUrl>
+                            </schemaRegistryUrls>
+                            <messagePath>src/main/proto</messagePath>
+
+                            <subjects>
+                                <!-- Matched to QualifiedReferenceSubjectNameStrategy: <package>.<filename> -->
+                                <orderflow.common.v1.metadata>src/main/proto/orderflow/common/v1/metadata.proto</orderflow.common.v1.metadata>
+
+                                <!-- Command Schema (RecordNameStrategy) -->
+                                <orderflow.payment.commands.v1.ChargePaymentCommand>src/main/proto/orderflow/payment/commands/v1/payment_commands.proto</orderflow.payment.commands.v1.ChargePaymentCommand>
+                            </subjects>
+
+                            <schemaTypes>
+                                <orderflow.common.v1.metadata>PROTOBUF</orderflow.common.v1.metadata>
+                                <orderflow.payment.commands.v1.ChargePaymentCommand>PROTOBUF</orderflow.payment.commands.v1.ChargePaymentCommand>
+                            </schemaTypes>
+
+                            <references>
+                                <orderflow.payment.commands.v1.ChargePaymentCommand>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.commands.v1.ChargePaymentCommand>
+                            </references>
+
+                            <compatibilityLevels>
+                                <orderflow.common.v1.metadata>BACKWARD</orderflow.common.v1.metadata>
+                                <orderflow.payment.commands.v1.ChargePaymentCommand>BACKWARD</orderflow.payment.commands.v1.ChargePaymentCommand>
+                            </compatibilityLevels>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
