@@ -1,1 +1,1 @@
-com.echcherqaoui.orderflow.security.autoconfigure.CommonSecurityAutoConfiguration
+com.echcherqaoui.orderflow.security.autoconfigure.SignatureAutoConfiguration

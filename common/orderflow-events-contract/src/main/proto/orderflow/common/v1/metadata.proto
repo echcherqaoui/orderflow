@@ -1,0 +1,16 @@
+syntax = "proto3";
+package orderflow.common.v1;
+
+option java_package = "com.echcherqaoui.orderflow.contracts.common.v1";
+option java_multiple_files = true;
+
+import "google/protobuf/timestamp.proto";
+
+// Embedded in every event/command message.
+message MessageMetadata {
+  string message_id = 1; // Unique message identity
+  string correlation_id = 2; // Traces the root transaction (e.g., order_id)
+  string causation_id = 3; // The ID of the event/command that triggered this
+  google.protobuf.Timestamp occurred_at = 4;
+  string signature = 5; // HMAC signature over payload + metadata
+}

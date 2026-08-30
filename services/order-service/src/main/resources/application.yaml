@@ -1,3 +1,76 @@
+# ── Server ──────────────────────────────────────────────
+server:
+  port: ${ORDER_SERVICE_PORT:8084}
+
+# ── Service Discovery ─────────────────────────────────────────
+eureka:
+  client:
+    enabled: false
+
+# ── Spring Boot Core ──────────────────────────────────────────
 spring:
   application:
     name: order-service
+
+  # ── gRPC ─────────────────────────────────────────────────────
+  grpc:
+    client:
+      channels:
+        inventory-service:
+          address: '${INVENTORY_SERVICE_HOST:localhost}:${INVENTORY_SERVICE_GRPC_PORT:9082}'
+          plaintext: true
+
+  # ── Database (PostgreSQL/JPA) ───────────────────────────────
+  datasource:
+    url: jdbc:postgresql://${PG_HOST:localhost}:${PG_PORT:5432}/${ORDER_DB:order_db}
+    username: ${PG_USER:user}
+    password: ${PG_PASSWORD:pass}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+  # ── Database Migration (Flyway) ─────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    placeholders:
+      outbox_publication_name: order_outbox_publication
+
+  # ── Kafka Messaging ─────────────────────────────────────────
+  kafka:
+    bootstrap-servers: ${KF_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      concurrency: 3
+      ack-mode: manual_immediate
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer
+
+    consumer:
+      group-id: ${KF_ORDER_CONSUMER_GROUP_ID:order-service-group}
+      auto-offset-reset: ${KF_AUTO_OFFSET_RESET:earliest}
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer
+        derive.type: true
+
+    properties:
+      schema.registry.url: ${SC_REGISTRY_URL:http://localhost:8181}
+      value.subject.name.strategy: io.confluent.kafka.serializers.subject.RecordNameStrategy
+      reference.subject.name.strategy: io.confluent.kafka.serializers.subject.QualifiedReferenceSubjectNameStrategy
+      auto.register.schemas: false
+      use.latest.version: true
+
+# ── Order Config ─────────────────────────────────────────────
+app:
+  security:
+    hmac:
+      secret: ${HMAC_SECRET_KEY:dev_secret_key_123456789_local}
+
+api:
+  base-path: /api/v1

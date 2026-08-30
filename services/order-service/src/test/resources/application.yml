@@ -15,3 +15,8 @@ spring:
       outbox_publication_name: order_outbox_publication
     locations:
       - classpath:db/migration
+
+  # ── Kafka Messaging ─────────────────────────────────────────
+  kafka:
+    properties:
+      auto.register.schemas: true

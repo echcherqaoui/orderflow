@@ -18,6 +18,7 @@ import lombok.Setter;
 import lombok.experimental.Accessors;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.jspecify.annotations.NonNull;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -96,9 +97,8 @@ public class Order {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    public Order addItem(OrderItem item) {
-        items.add(item);
+    public void addItem(@NonNull OrderItem item) {
         item.setOrder(this);
-        return this;
+        items.add(item);
     }
 }

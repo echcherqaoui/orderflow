@@ -22,8 +22,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import static com.echcherqaoui.orderflow.inventory.exception.enums.InventoryErrorCode.EMPTY_ITEM_LIST;
-import static com.echcherqaoui.orderflow.inventory.exception.enums.InventoryErrorCode.ITEMS_OUT_OF_STOCK;
+import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.EMPTY_ITEM_LIST;
+import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.ITEMS_OUT_OF_STOCK;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
