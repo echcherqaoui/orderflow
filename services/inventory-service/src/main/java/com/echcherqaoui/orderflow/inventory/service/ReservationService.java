@@ -6,5 +6,5 @@ import java.util.Set;
 import java.util.UUID;
 
 public interface ReservationService {
-    long reserve(@NonNull String cartId, @NonNull Set<UUID> requestedItemIds);
+    Long reserve(@NonNull String cartId, @NonNull Set<UUID> requestedItemIds);
 }

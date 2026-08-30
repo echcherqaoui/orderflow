@@ -18,8 +18,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import static com.echcherqaoui.orderflow.inventory.exception.enums.InventoryErrorCode.EMPTY_ITEM_LIST;
-import static com.echcherqaoui.orderflow.inventory.exception.enums.InventoryErrorCode.ITEMS_OUT_OF_STOCK;
+import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.EMPTY_ITEM_LIST;
+import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.ITEMS_OUT_OF_STOCK;
 import static com.echcherqaoui.orderflow.inventory.model.ReservationStatus.PENDING;
 
 @Service
@@ -52,7 +52,7 @@ public class ReservationServiceImpl implements ReservationService {
      */
     @Transactional
     @Override
-    public long reserve(@NonNull String cartId, @NonNull Set<UUID> requestedItemIds) {
+    public Long reserve(@NonNull String cartId, @NonNull Set<UUID> requestedItemIds) {
         if (requestedItemIds.isEmpty())
             throw new InvalidReservationException(EMPTY_ITEM_LIST);
 

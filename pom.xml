@@ -65,18 +65,23 @@
 
     <!-- ═══════════════════════════════════════════════════════════
         REPOSITORIES
-        Confluent Maven repository for Schema Registry artifacts.
+        Confluent remote repositories for Java dependencies and Maven plugins.
     ════════════════════════════════════════════════════════════════ -->
     <repositories>
         <repository>
             <id>confluent</id>
             <name>Confluent Repository</name>
             <url>https://packages.confluent.io/maven/</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
         </repository>
     </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>confluent</id>
+            <name>Confluent Repository</name>
+            <url>https://packages.confluent.io/maven/</url>
+        </pluginRepository>
+    </pluginRepositories>
 
     <!-- ═══════════════════════════════════════════════════════════
         COMMON DEPENDENCIES
@@ -174,6 +179,20 @@
                 <groupId>io.confluent</groupId>
                 <artifactId>kafka-protobuf-serializer</artifactId>
                 <version>${kafka-protobuf-serializer.version}</version>
+            </dependency>
+
+            <!-- Core Google Protocol Buffers Java runtime library for serialization and generated code execution -->
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+
+            <!-- Protobuf utilities providing JSON conversion (JsonFormat), printing, and dynamic message handling -->
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java-util</artifactId>
+                <version>${protobuf.version}</version>
             </dependency>
 
             <!-- Fix CVE-2020-13956 -->
@@ -275,6 +294,7 @@
                     </configuration>
                 </plugin>
 
+                <!-- Compiles Protobuf schemas and generates Java gRPC stub code -->
                 <plugin>
                     <groupId>io.github.ascopes</groupId>
                     <artifactId>protobuf-maven-plugin</artifactId>

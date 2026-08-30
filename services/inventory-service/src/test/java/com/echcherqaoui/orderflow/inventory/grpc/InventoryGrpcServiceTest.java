@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.ITEMS_OUT_OF_STOCK;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -98,7 +99,7 @@ class InventoryGrpcServiceTest {
               .addItemIds(itemId.toString())
               .build();
 
-        OutOfStockException domainException = new OutOfStockException(itemId);
+        OutOfStockException domainException = new OutOfStockException(ITEMS_OUT_OF_STOCK);
         doThrow(domainException)
               .when(reservationService).reserve(cartId, Set.of(itemId));
 

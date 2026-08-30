@@ -14,8 +14,12 @@ public class GrpcServerExceptionHandler implements GrpcExceptionHandler {
     @Override
     public StatusException handleException(@NonNull Throwable ex) {
         return switch (ex) {
-            case IllegalArgumentException illegalArgEx ->
-                  Status.INVALID_ARGUMENT.withDescription(illegalArgEx.getMessage()).asException();
+            case IllegalArgumentException illegalArgEx -> {
+                log.warn("Invalid client argument: {}", illegalArgEx.getMessage());
+                yield Status.INVALID_ARGUMENT
+                      .withDescription("Invalid request parameters provided")
+                      .asException();
+            }
 
             case BaseCustomException customEx ->
                   mapHttpStatusToGrpcStatus(customEx).asException();
@@ -40,7 +44,8 @@ public class GrpcServerExceptionHandler implements GrpcExceptionHandler {
             case 401 -> Status.UNAUTHENTICATED.withDescription(ex.getMessage());
             case 403 -> Status.PERMISSION_DENIED.withDescription(ex.getMessage());
             case 404 -> Status.NOT_FOUND.withDescription(ex.getMessage());
-            case 409, 422 -> Status.ALREADY_EXISTS.withDescription(ex.getMessage());
+            case 409 -> Status.ALREADY_EXISTS.withDescription(ex.getMessage());
+            case 412, 422 -> Status.FAILED_PRECONDITION.withDescription(ex.getMessage());
             case 429 -> Status.RESOURCE_EXHAUSTED.withDescription(ex.getMessage());
             default -> Status.INTERNAL.withDescription(ex.getMessage());
         };
