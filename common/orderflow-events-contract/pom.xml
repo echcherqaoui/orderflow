@@ -75,11 +75,15 @@
 
                                 <!-- Command Schema (RecordNameStrategy) -->
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>src/main/proto/orderflow/payment/commands/v1/payment_commands.proto</orderflow.payment.commands.v1.ChargePaymentCommand>
+
+                                <!-- Event Schema (RecordNameStrategy) -->
+                                <orderflow.payment.events.v1.PaymentInitiatedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitiatedEvent>
                             </subjects>
 
                             <schemaTypes>
                                 <orderflow.common.v1.metadata>PROTOBUF</orderflow.common.v1.metadata>
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>PROTOBUF</orderflow.payment.commands.v1.ChargePaymentCommand>
+                                <orderflow.payment.events.v1.PaymentInitiatedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitiatedEvent>
                             </schemaTypes>
 
                             <references>
@@ -89,11 +93,19 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.payment.commands.v1.ChargePaymentCommand>
+
+                                <orderflow.payment.events.v1.PaymentInitiatedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.events.v1.PaymentInitiatedEvent>
                             </references>
 
                             <compatibilityLevels>
                                 <orderflow.common.v1.metadata>BACKWARD</orderflow.common.v1.metadata>
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>BACKWARD</orderflow.payment.commands.v1.ChargePaymentCommand>
+                                <orderflow.payment.events.v1.PaymentInitiatedEvent>BACKWARD</orderflow.payment.events.v1.PaymentInitiatedEvent>
                             </compatibilityLevels>
                         </configuration>
                     </plugin>
