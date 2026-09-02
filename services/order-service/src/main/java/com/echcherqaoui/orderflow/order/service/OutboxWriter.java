@@ -29,13 +29,13 @@ public class OutboxWriter {
 
     private final KafkaProtobufSerializer<Message> serializer;
 
-    private static final String SERIALIZATION_CONTEXT = "outbox-serialization-context";
-
     private void persist(@NonNull Message message,
                          String orderId,
                          String aggregateType) {
+        String topic = "orderflow." + aggregateType;
+
         // Serializes payload + attaches 5-byte Confluent header (Magic byte + Schema ID)
-        byte[] payload = serializer.serialize(SERIALIZATION_CONTEXT, message);
+        byte[] payload = serializer.serialize(topic, message);
 
         OutboxEvent event = new OutboxEvent()
               .setId(UUID.randomUUID())
@@ -49,19 +49,18 @@ public class OutboxWriter {
     }
 
     @Transactional(propagation = MANDATORY)
-    public void publishChargePaymentCommand(UUID orderId, String userId, long totalPriceCents) {
+    public void publishChargePaymentCommand(@NonNull UUID orderId, String userId, long totalPriceCents) {
         String messageId = UUID.randomUUID().toString();
         Timestamp occurredAt = InstantConverter.toTimestamp(Instant.now());
+        String orderIdString = orderId.toString();
 
         String signature = signatureService.sign(
               messageId,
-              occurredAt.getSeconds(),
-              orderId,
+              String.valueOf(occurredAt.getSeconds()),
+              orderIdString,
               userId,
-              totalPriceCents
+              String.valueOf(totalPriceCents)
         );
-
-        String orderIdString = orderId.toString();
 
         MessageMetadata messageMetadata = MessageMetadata.newBuilder()
               .setMessageId(messageId)

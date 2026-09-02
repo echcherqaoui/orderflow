@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package orderflow.payment.events.v1;
+
+option java_package = "com.echcherqaoui.orderflow.contracts.payment.events.v1";
+option java_multiple_files = true;
+
+import "orderflow/common/v1/metadata.proto";
+
+message PaymentInitiatedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string payment_intent_id = 2;
+  string client_secret = 3;
+}

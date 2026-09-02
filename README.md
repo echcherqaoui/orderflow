@@ -10,7 +10,7 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 * **Framework:** Spring Boot `4.0.7` | Spring Cloud `2025.1.2` | Spring gRPC `1.0.3`
 * **Build System:** Apache Maven (Root Multi-Module POM)
 * **Database & Migrations:** PostgreSQL 17 | Flyway
-* **Event Streaming & Schemas:** Apache Kafka (KRaft) | Confluent Schema Registry `7.7.7` | Protobuf `4.28.2`
+* **Event Streaming & Schemas:** Apache Kafka (KRaft) | Confluent Schema Registry `7.7.7` | Protobuf `3.25.5`
 * **Change Data Capture:** Debezium PostgreSQL Connector `3.1.2` (Outbox Pattern)
 * **Infrastructure as Code:** Terraform `1.14` (`Mongey/kafka` provider `0.12.1`)
 * **Developer Tools:** pgAdmin 4 | Kafka UI
@@ -57,23 +57,34 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 | Service | REST Port | gRPC Port | Database | Primary Responsibilities |
 | :--- |:----------|:----------| :--- | :--- |
 | **Inventory Service** | `8082`    | `9082`    | `inventory_db` | Item catalog management, pessimistic stock reservation engine, scheduled background stock sweeper, gRPC endpoints |
-| **Order Service** | `----`    | `----`    | `order_db` |  |
-| **Payment Service** | `----`    | `----`    | `payment_db` |  |
+| **Order Service** | `8084`    | `----` | `order_db` | Order orchestration, Saga kickoff, synchronous gRPC inventory checks, transactional outbox writer, SSE real-time updates |
+| **Payment Service** | `8086`    | `----`    | `payment_db` |Payment lifecycle management—handling payment intent initialization, asynchronous Saga charge execution, third-party gateway verification, and atomic payment event publishing|
 | **Entitlement Service** | `----`    | `----`    | `entitlement_db` |  |
 
 ---
+## 🏬 Service Deep-Dives
 
-## 🏬 Service Deep-Dive: Inventory Service
-
-The **Inventory Service** handles high-concurrency stock tracking and reservation management:
-
+### Inventory Service
+Handles high-concurrency stock tracking and reservation management:
 * **Pessimistic Reservation Engine:** Reserves stock under high concurrency, preventing overselling during checkout flows.
 * **Automated Expiration Sweeper (`ReservationSweeper`):** A fixed-delay task (running every 30s) that recovers stock from orphaned or timed-out `PENDING` reservations in batches using `SKIP LOCKED` to prevent DB row contention across multi-instance deployments.
 * **Batch Stock Increments:** Optimized repository-level SQL batch operations for fast inventory restoration.
 * **gRPC Capabilities:** Exposes high-throughput Protobuf stubs (`inventory_service.proto`) for inter-service synchronous checks.
 
----
+### Order Service
+Acts as the Saga orchestrator for checkout workflows:
+* **Synchronous Stock Validation:** Executes synchronous gRPC calls to the Inventory Service (`InventoryServiceClient`) to reserve items during initial order submission.
+* **Transactional Outbox Writer:** Persists domain events into the `outbox` table within the local database transaction boundary. Debezium CDC captures these inserts and routes them to Kafka.
+* **Asynchronous Client Feedback:** Maintains real-time SSE (`SseEmitterRegistry`) connections to push status updates back to clients as downstream saga events settle.
+* **Saga Step Tracking:** Records structured audit logs and state transition telemetry for each phase of the distributed order saga.
 
+### Payment Service
+Serves as the single source of truth for payment processing and lifecycle state management across the checkout Saga:
+* **Payment Intent & Charge Execution:** Handles initial payment intent creation and consumes asynchronous charge commands (`ChargePaymentCommandHandler`) dispatched during order orchestration.
+* **Gateway Abstraction & Verification:** Provides an extensible gateway layer (`PaymentGateway`, `MockPaymentGateway`) with HMAC payload verification (`SignatureService`) to safely simulate and process third-party provider workflows (e.g., Stripe PaymentIntents).
+* **Transactional State & Outbox:** Guarantees atomic persistence of payment records (`Payment`, `PaymentStatus`) and outbox events in a single database transaction boundary, ensuring zero event loss when notifying downstream services via Debezium CDC.
+* **Resilient Command Consumption:** Utilizes dedicated retry topics and dead-letter queues (`KafkaRetryConfig`) to ensure transient gateway or network failures do not compromise payment consistency.
+---
 ## 🧩 Shared Common Modules
 
 The architecture relies on lightweight shared modules located under `common/`. Downstream microservices inherit these contracts and utility layers.
@@ -88,15 +99,46 @@ The architecture relies on lightweight shared modules located under `common/`. D
 | **gRPC Contract** | `orderflow-grpc-contract` | Protobuf definitions and generated stubs for synchronous inter-service gRPC calls |
 
 ---
+## 🚀 Operations & Development Lifecycle
 
-## 🛠️ Building Shared Modules Locally
-
-Because shared modules are nested under the `common/` directory, run builds from the project root using relative reactor paths:
+### 1. Build Shared Modules Locally
+Install common modules into your local Maven repository before compiling services:
 
 ```bash
-# Build and install ALL common modules into local .m2
 mvn clean install -pl common/common-exceptions,common/common-kafka,common/common-outbox,common/common-security,common/orderflow-events-contract,common/orderflow-grpc-contract -am -DskipTests
+```
 
-# Build a single module with its upstream dependencies (e.g., common-kafka)
-mvn clean install -pl common/common-kafka -am -DskipTests
+### 2. Environment Startup
+```bash
+# Start full stack (Infrastructure + Microservices + Dev Tools)
+make dev-up
+
+# Or start core infrastructure only
+make infra-up
+```
+
+### 3. Kafka & Pipeline Initialization
+Execute setup tasks in sequence once infrastructure containers are healthy:
+
+```bash
+# 1. Provision Kafka topics via Terraform
+make topics-apply
+
+# 2. Register Protobuf schemas with Schema Registry
+make register-schemas
+
+# 3. Register Debezium CDC connectors with Kafka Connect
+make register-connectors
+```
+
+### 4. Verification & Management Commands
+```bash
+# Verify active Debezium connectors
+curl -s http://localhost:8083/connectors | jq
+
+# Rebuild and restart a single service after code changes
+make rebuild-service MODULE=services/order-service SERVICE=order-service
+
+# Teardown all containers and networks
+make down
 ```

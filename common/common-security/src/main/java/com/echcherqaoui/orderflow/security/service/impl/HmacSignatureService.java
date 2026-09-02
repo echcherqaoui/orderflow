@@ -16,20 +16,20 @@ public class HmacSignatureService implements SignatureService {
 
     private static final String ALGORITHM = "HmacSHA256";
 
-    private final byte[] secretKey;
+    private final SecretKeySpec secretKeySpec;
 
     public HmacSignatureService(@NonNull String secret) {
         if (secret.isBlank())
             throw new IllegalArgumentException("HMAC secret must not be blank");
 
-        this.secretKey = secret.getBytes(UTF_8);
+        this.secretKeySpec = new SecretKeySpec(secret.getBytes(UTF_8), ALGORITHM);
     }
 
-    private String computeHmac(String data) {
+    private String computeHmac(@NonNull String data) {
 
         try {
             Mac mac = Mac.getInstance(ALGORITHM);
-            mac.init(new SecretKeySpec(secretKey, ALGORITHM));
+            mac.init(secretKeySpec);
             byte[] hmacBytes = mac.doFinal(data.getBytes(UTF_8));
 
             return Base64.getUrlEncoder()
@@ -51,26 +51,18 @@ public class HmacSignatureService implements SignatureService {
     }
 
     @NonNull
-    private String canonicalize(Object... payloadParts) {
-        if (payloadParts == null)
-            throw new IllegalArgumentException("payloadParts array must not be null");
-
+    private String canonicalize( String @NonNull... payloadParts) {
         StringBuilder sb = new StringBuilder();
-
-        for (Object p : payloadParts) {
-            String str = String.valueOf(p);
-            sb.append(str.length()).append(':').append(str);
+        for (String p : payloadParts) {
+            // p is guaranteed non-null and is already a String
+            sb.append(p.length()).append(':').append(p);
         }
-
         return sb.toString();
     }
 
-    private void validatePayloadParts(Object[] payloadParts) {
-        if (payloadParts == null)
-            throw new IllegalArgumentException("payloadParts array must not be null");
-
-        if (payloadParts.length == 0)
-            throw new IllegalArgumentException("payloadParts must not be empty");
+    private void validatePayloadParts(String[] payloadParts) {
+        if (payloadParts == null || payloadParts.length == 0)
+            throw new IllegalArgumentException("payloadParts array must not be null or empty");
 
         for (int i = 0; i < payloadParts.length; i++)
             if (payloadParts[i] == null)
@@ -78,14 +70,14 @@ public class HmacSignatureService implements SignatureService {
     }
 
     @Override
-    public String sign(Object... payloadParts) {
+    public String sign(String... payloadParts) {
         validatePayloadParts(payloadParts);
 
         return computeHmac(canonicalize(payloadParts));
     }
 
     @Override
-    public boolean verify(String signature, Object... payloadParts) {
+    public boolean verify(String signature, String... payloadParts) {
         if (signature == null || signature.isBlank())
             return false;
 
