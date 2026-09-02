@@ -1,11 +1,13 @@
-package com.echcherqaoui.orderflow.order.service;
+package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
-import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
+import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Message;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,7 +31,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 @ExtendWith(MockitoExtension.class)
 class OutboxWriterTest {
 
-    private static final String EXPECTED_TOPIC = "orderflow.payment.commands";
+    private static final String EXPECTED_TOPIC = "orderflow.payment.events";
 
     @Mock
     private OutboxEventRepository outboxEventRepository;
@@ -56,74 +58,89 @@ class OutboxWriterTest {
     private ArgumentCaptor<String> secondsCaptor;
 
     private final UUID orderId = UUID.randomUUID();
-    private final String userId = "user-456";
-    private final long totalPriceCents = 9900L;
+    private final String triggerEventId = UUID.randomUUID().toString();
     private final String dummySignature = "hmac-signature-12345";
     private final byte[] serializedPayload = new byte[]{0x0, 0x1, 0x2, 0x3};
 
+    private CreatePaymentIntentResponse pspResponse;
+
+    @BeforeEach
+    void setUp() {
+        pspResponse = new CreatePaymentIntentResponse("pi_123456", "client_secret_654321");
+    }
+
+    private static String anyStringOrVarargs() {
+        return any(String.class);
+    }
+
     @Nested
-    @DisplayName("publishChargePaymentCommand()")
-    class PublishChargePaymentCommand {
+    @DisplayName("publishPaymentInitiatedEvent()")
+    class PublishPaymentInitiatedEvent {
 
         @Test
-        @DisplayName("successful invocation signs command, serializes protobuf message, and saves outbox event")
-        void publishChargePaymentCommand_success_buildsProtobufSignsAndSavesEvent() {
-            given(signatureService.sign(any(String[].class)))
-                  .willReturn(dummySignature);
+        @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
+        void publishPaymentInitiatedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(
+                  anyStringOrVarargs(),
+                  eq(orderId.toString()),
+                  eq(pspResponse.paymentIntentId()),
+                  anyStringOrVarargs()
+            )).willReturn(dummySignature);
+
             given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
                   .willReturn(serializedPayload);
             given(outboxEventRepository.save(any(OutboxEvent.class)))
                   .willAnswer(invocation -> invocation.getArgument(0));
 
-            outboxWriter.publishChargePaymentCommand(orderId, userId, totalPriceCents);
+            outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse);
 
             then(signatureService).should().sign(
                   messageIdCaptor.capture(),
-                  secondsCaptor.capture(),
                   eq(orderId.toString()),
-                  eq(userId),
-                  eq(String.valueOf(totalPriceCents))
+                  eq(pspResponse.paymentIntentId()),
+                  secondsCaptor.capture()
             );
 
             String capturedMessageId = messageIdCaptor.getValue();
             long capturedSeconds = Long.parseLong(secondsCaptor.getValue());
 
-            assertThat(capturedMessageId).isNotNull();
+            assertThat(capturedMessageId).isNotBlank();
             assertThat(UUID.fromString(capturedMessageId)).isNotNull();
             assertThat(capturedSeconds).isGreaterThan(0L);
 
             then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
             Message capturedMessage = messageCaptor.getValue();
-            assertThat(capturedMessage).isInstanceOf(ChargePaymentCommand.class);
+            assertThat(capturedMessage).isInstanceOf(PaymentInitiatedEvent.class);
 
-            ChargePaymentCommand command = (ChargePaymentCommand) capturedMessage;
-            assertThat(command.getUserId()).isEqualTo(userId);
-            assertThat(command.getOrderId()).isEqualTo(orderId.toString());
-            assertThat(command.getTotalPriceCents()).isEqualTo(totalPriceCents);
-            assertThat(command.getMetadata().getMessageId()).isEqualTo(capturedMessageId);
-            assertThat(command.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
-            assertThat(command.getMetadata().getSignature()).isEqualTo(dummySignature);
-            assertThat(command.getMetadata().getOccurredAt().getSeconds()).isEqualTo(capturedSeconds);
+            PaymentInitiatedEvent event = (PaymentInitiatedEvent) capturedMessage;
+            assertThat(event.getPaymentIntentId()).isEqualTo(pspResponse.paymentIntentId());
+            assertThat(event.getClientSecret()).isEqualTo(pspResponse.clientSecret());
+            assertThat(event.getMetadata().getMessageId()).isEqualTo(capturedMessageId);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+            assertThat(event.getMetadata().getOccurredAt().getSeconds()).isEqualTo(capturedSeconds);
 
             then(outboxEventRepository).should().save(outboxEventCaptor.capture());
             OutboxEvent savedEvent = outboxEventCaptor.getValue();
 
             assertThat(savedEvent.getId()).isNotNull();
-            assertThat(savedEvent.getAggregateType()).isEqualTo("payment.commands");
+            assertThat(savedEvent.getAggregateType()).isEqualTo("payment.events");
             assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
-            assertThat(savedEvent.getEventType()).isEqualTo("ChargePaymentCommand");
+            assertThat(savedEvent.getEventType()).isEqualTo("PaymentInitiatedEvent");
             assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
             assertThat(savedEvent.getCreatedAt()).isNotNull();
         }
 
         @Test
         @DisplayName("signature service failure propagates exception and halts serialization and persistence")
-        void publishChargePaymentCommand_signatureServiceFails_propagatesExceptionAndAborts() {
+        void publishPaymentInitiatedEvent_signatureServiceFails_propagatesExceptionAndAborts() {
             RuntimeException signatureException = new RuntimeException("HMAC signing key error");
-            given(signatureService.sign(any(String[].class)))
+
+            given(signatureService.sign(any(), any(), any(), any()))
                   .willThrow(signatureException);
 
-            assertThatThrownBy(() -> outboxWriter.publishChargePaymentCommand(orderId, userId, totalPriceCents))
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse))
                   .isSameAs(signatureException);
 
             verifyNoInteractions(serializer, outboxEventRepository);
@@ -131,36 +148,36 @@ class OutboxWriterTest {
 
         @Test
         @DisplayName("serializer failure propagates exception and halts outbox persistence")
-        void publishChargePaymentCommand_serializerFails_propagatesExceptionAndAbortsSave() {
+        void publishPaymentInitiatedEvent_serializerFails_propagatesExceptionAndAbortsSave() {
             RuntimeException serializationException = new RuntimeException("Confluent Schema Registry timeout");
-            given(signatureService.sign(any(String[].class)))
+            given(signatureService.sign(any(), any(), any(), any()))
                   .willReturn(dummySignature);
             given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
                   .willThrow(serializationException);
 
-            assertThatThrownBy(() -> outboxWriter.publishChargePaymentCommand(orderId, userId, totalPriceCents))
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse))
                   .isSameAs(serializationException);
 
-            then(signatureService).should().sign(any(String[].class));
+            then(signatureService).should().sign(any(), any(), any(), any());
             then(serializer).should().serialize(eq(EXPECTED_TOPIC), any(Message.class));
             verifyNoInteractions(outboxEventRepository);
         }
 
         @Test
         @DisplayName("repository save failure propagates exception after message construction and serialization")
-        void publishChargePaymentCommand_repositorySaveFails_propagatesException() {
+        void publishPaymentInitiatedEvent_repositorySaveFails_propagatesException() {
             RuntimeException dbException = new RuntimeException("Database constraint violation");
-            given(signatureService.sign(any(String[].class)))
+            given(signatureService.sign(any(), any(), any(), any()))
                   .willReturn(dummySignature);
             given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
                   .willReturn(serializedPayload);
             given(outboxEventRepository.save(any(OutboxEvent.class)))
                   .willThrow(dbException);
 
-            assertThatThrownBy(() -> outboxWriter.publishChargePaymentCommand(orderId, userId, totalPriceCents))
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse))
                   .isSameAs(dbException);
 
-            then(signatureService).should().sign(any(String[].class));
+            then(signatureService).should().sign(any(), any(), any(), any());
             then(serializer).should().serialize(eq(EXPECTED_TOPIC), any(Message.class));
             then(outboxEventRepository).should().save(any(OutboxEvent.class));
         }
