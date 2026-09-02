@@ -35,6 +35,34 @@ resource "kafka_topic" "orderflow_payment_commands_dlt" {
   }
 }
 
+resource "kafka_topic" "orderflow_payment_events" {
+  name               = "orderflow.payment.events"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_payment_events_dlt" {
+  name               = "orderflow.payment.events.dlt"
+  replication_factor = 1
+  partitions         = 1  # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DEBEZIUM CDC HEARTBEAT TOPIC
 # ─────────────────────────────────────────────────────────────────────────────
