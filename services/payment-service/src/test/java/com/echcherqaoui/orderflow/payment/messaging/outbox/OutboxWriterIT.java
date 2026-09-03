@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.echcherqaoui.orderflow.payment.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
@@ -20,7 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 class OutboxWriterIT extends AbstractIntegrationTest {
@@ -53,8 +54,7 @@ class OutboxWriterIT extends AbstractIntegrationTest {
                   .createQuery(
                         "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
                         OutboxEvent.class
-                  )
-                  .setParameter("orderId", orderId.toString())
+                  ).setParameter("orderId", orderId.toString())
                   .setParameter("aggregateType", "payment.events")
                   .getResultList();
 
@@ -71,8 +71,10 @@ class OutboxWriterIT extends AbstractIntegrationTest {
 
             // Verify Protobuf Wire Format & Schema Registry Decoding
             Map<String, Object> deserializerConfig = new HashMap<>();
-            deserializerConfig.put("schema.registry.url",
-                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081));
+            deserializerConfig.put(
+                  "schema.registry.url",
+                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081)
+            );
             deserializerConfig.put("specific.protobuf.value.type", PaymentInitiatedEvent.class);
 
             try (KafkaProtobufDeserializer<PaymentInitiatedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
@@ -116,6 +118,92 @@ class OutboxWriterIT extends AbstractIntegrationTest {
         void publishPaymentInitiatedEvent_nullPspResponse_throwsNullPointerException() {
             assertThatThrownBy(() ->
                   outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, null)
+            ).isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishPaymentInitializationFailedEvent()")
+    class PublishPaymentInitializationFailedEvent {
+
+        private final String reason = "PSP connection failed: HTTP 503 Service Unavailable.";
+
+        @Test
+        @Transactional
+        @DisplayName("successfully serializes payload using Schema Registry wire format and persists complete outbox entity")
+        void publishPaymentInitializationFailedEvent_success_persistsAndSerializesPayload() {
+            outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            List<OutboxEvent> rows = entityManager
+                  .createQuery(
+                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
+                        OutboxEvent.class
+                  ).setParameter("orderId", orderId.toString())
+                  .setParameter("aggregateType", "payment.events")
+                  .getResultList();
+
+            assertThat(rows).hasSize(1);
+            OutboxEvent event = rows.getFirst();
+
+            // Verify Outbox Metadata
+            assertThat(event.getId()).isNotNull();
+            assertThat(event.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(event.getAggregateType()).isEqualTo("payment.events");
+            assertThat(event.getEventType()).isEqualTo("PaymentInitializationFailedEvent");
+            assertThat(event.getCreatedAt()).isNotNull();
+            assertThat(event.getPayload()).isNotEmpty();
+
+            // Verify Protobuf Wire Format & Schema Registry Decoding
+            Map<String, Object> deserializerConfig = new HashMap<>();
+            deserializerConfig.put(
+                  "schema.registry.url",
+                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081)
+            );
+            deserializerConfig.put("specific.protobuf.value.type", PaymentInitializationFailedEvent.class);
+
+            try (KafkaProtobufDeserializer<PaymentInitializationFailedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+                deserializer.configure(deserializerConfig, false);
+
+                PaymentInitializationFailedEvent decoded = deserializer.deserialize("orderflow.payment.events", event.getPayload());
+
+                // Payload assertions
+                assertThat(decoded.getReason()).isEqualTo(reason);
+
+                // Metadata assertions
+                assertThat(decoded.getMetadata().getMessageId()).isNotBlank();
+                assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+                assertThat(decoded.getMetadata().hasOccurredAt()).isTrue();
+                assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+            }
+        }
+
+        @Test
+        @DisplayName("throws IllegalTransactionStateException when called without an active transaction")
+        void publishPaymentInitializationFailedEvent_noActiveTransaction_throwsIllegalTransactionStateException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason)
+            ).isInstanceOf(IllegalTransactionStateException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when orderId is null")
+        void publishPaymentInitializationFailedEvent_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishPaymentInitializationFailedEvent(null, triggerEventId, reason)
+            ).isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when reason is null")
+        void publishPaymentInitializationFailedEvent_nullReason_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, null)
             ).isInstanceOf(NullPointerException.class);
         }
     }

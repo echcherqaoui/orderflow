@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.ArrayList;
@@ -22,7 +21,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.CyclicBarrier;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -119,7 +117,7 @@ class PaymentInitializationServiceIT extends AbstractIntegrationTest {
         }
 
         @Test
-        @DisplayName("concurrent executions trigger TOCTOU race condition but database unique constraint prevents duplicate persistence")
+        @DisplayName("concurrent executions trigger TOCTOU race condition but DB unique constraint is caught gracefully")
         void initializePayment_concurrentRequests_guaranteesSingleDatabasePersistence() throws Exception {
             int threadCount = 2;
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -143,39 +141,45 @@ class PaymentInitializationServiceIT extends AbstractIntegrationTest {
                 }));
             }
 
-            int constraintViolations = 0;
             for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (ExecutionException e) {
-                    if (e.getCause() instanceof DataIntegrityViolationException)
-                        constraintViolations++;
-                    else
-                        throw e;
-                }
+                future.get(); // Completes without throwing exception due to service catching DataIntegrityViolationException
             }
 
             executor.shutdown();
 
-            assertThat(constraintViolations).isEqualTo(1);
             assertThat(paymentRepository.findAll()).hasSize(1);
             assertThat(outboxEventRepository.findAll()).hasSize(1);
         }
 
         @Test
-        @DisplayName("psp gateway failure prevents database persistence and throws exception")
-        void initializePayment_gatewayFailure_abortsAndDoesNotPersist() {
+        @DisplayName("psp gateway failure persists failed payment status and failure outbox event atomically")
+        void initializePayment_gatewayFailure_persistsFailedPaymentAndOutbox() {
             given(paymentGateway.createIntent(anyString(), anyLong()))
                   .willThrow(new RuntimeException("PSP connection timeout"));
 
-            assertThatThrownBy(() ->
-                  paymentInitializationService.initializePayment(orderId, userId, totalAmountCents, triggerEventId)
-            ).isInstanceOf(RuntimeException.class)
-             .hasMessage("PSP connection timeout");
+            paymentInitializationService.initializePayment(orderId, userId, totalAmountCents, triggerEventId);
 
-            assertThat(paymentRepository.existsByOrderId(orderId)).isFalse();
-            assertThat(paymentRepository.findAll()).isEmpty();
-            assertThat(outboxEventRepository.findAll()).isEmpty();
+            assertThat(paymentRepository.existsByOrderId(orderId)).isTrue();
+
+            List<Payment> payments = paymentRepository.findAll();
+            assertThat(payments).hasSize(1);
+
+            Payment payment = payments.getFirst();
+            assertThat(payment.getOrderId()).isEqualTo(orderId);
+            assertThat(payment.getPaymentIntentId()).isNull();
+            assertThat(payment.getUserId()).isEqualTo(userId);
+            assertThat(payment.getTotalAmountCents()).isEqualTo(totalAmountCents);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(payment.getFailureReason()).isEqualTo("PSP connection timeout");
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+
+            OutboxEvent outboxEvent = outboxEvents.getFirst();
+            assertThat(outboxEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(outboxEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(outboxEvent.getEventType()).isEqualTo("PaymentInitializationFailedEvent");
+            assertThat(outboxEvent.getPayload()).isNotEmpty();
         }
 
         @Test

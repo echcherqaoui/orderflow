@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
@@ -23,6 +24,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -69,10 +71,6 @@ class OutboxWriterTest {
         pspResponse = new CreatePaymentIntentResponse("pi_123456", "client_secret_654321");
     }
 
-    private static String anyStringOrVarargs() {
-        return any(String.class);
-    }
-
     @Nested
     @DisplayName("publishPaymentInitiatedEvent()")
     class PublishPaymentInitiatedEvent {
@@ -81,10 +79,10 @@ class OutboxWriterTest {
         @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
         void publishPaymentInitiatedEvent_success_buildsProtobufSignsAndSavesEvent() {
             given(signatureService.sign(
-                  anyStringOrVarargs(),
+                  anyString(),
                   eq(orderId.toString()),
                   eq(pspResponse.paymentIntentId()),
-                  anyStringOrVarargs()
+                  anyString()
             )).willReturn(dummySignature);
 
             given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
@@ -175,6 +173,117 @@ class OutboxWriterTest {
                   .willThrow(dbException);
 
             assertThatThrownBy(() -> outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse))
+                  .isSameAs(dbException);
+
+            then(signatureService).should().sign(any(), any(), any(), any());
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), any(Message.class));
+            then(outboxEventRepository).should().save(any(OutboxEvent.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("publishPaymentInitializationFailedEvent()")
+    class PublishPaymentInitializationFailedEvent {
+
+        private final String reason = "PSP connection failed: HTTP 503 Service Unavailable.";
+
+        @Test
+        @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
+        void publishPaymentInitializationFailedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(
+                  anyString(),
+                  eq(orderId.toString()),
+                  eq(reason),
+                  anyString()
+            )).willReturn(dummySignature);
+
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
+                  .willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason);
+
+            then(signatureService).should().sign(
+                  messageIdCaptor.capture(),
+                  eq(orderId.toString()),
+                  eq(reason),
+                  secondsCaptor.capture()
+            );
+
+            String capturedMessageId = messageIdCaptor.getValue();
+            long capturedSeconds = Long.parseLong(secondsCaptor.getValue());
+
+            assertThat(capturedMessageId).isNotBlank();
+            assertThat(UUID.fromString(capturedMessageId)).isNotNull();
+            assertThat(capturedSeconds).isGreaterThan(0L);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            Message capturedMessage = messageCaptor.getValue();
+            assertThat(capturedMessage).isInstanceOf(PaymentInitializationFailedEvent.class);
+
+            PaymentInitializationFailedEvent event = (PaymentInitializationFailedEvent) capturedMessage;
+            assertThat(event.getReason()).isEqualTo(reason);
+            assertThat(event.getMetadata().getMessageId()).isEqualTo(capturedMessageId);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+            assertThat(event.getMetadata().getOccurredAt().getSeconds()).isEqualTo(capturedSeconds);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getId()).isNotNull();
+            assertThat(savedEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("PaymentInitializationFailedEvent");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+            assertThat(savedEvent.getCreatedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("signature service failure propagates exception and halts serialization and persistence")
+        void publishPaymentInitializationFailedEvent_signatureServiceFails_propagatesExceptionAndAborts() {
+            RuntimeException signatureException = new RuntimeException("HMAC signing key error");
+
+            given(signatureService.sign(any(), any(), any(), any()))
+                  .willThrow(signatureException);
+
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason))
+                  .isSameAs(signatureException);
+
+            verifyNoInteractions(serializer, outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("serializer failure propagates exception and halts outbox persistence")
+        void publishPaymentInitializationFailedEvent_serializerFails_propagatesExceptionAndAbortsSave() {
+            RuntimeException serializationException = new RuntimeException("Confluent Schema Registry timeout");
+            given(signatureService.sign(any(), any(), any(), any()))
+                  .willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
+                  .willThrow(serializationException);
+
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason))
+                  .isSameAs(serializationException);
+
+            then(signatureService).should().sign(any(), any(), any(), any());
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), any(Message.class));
+            verifyNoInteractions(outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("repository save failure propagates exception after message construction and serialization")
+        void publishPaymentInitializationFailedEvent_repositorySaveFails_propagatesException() {
+            RuntimeException dbException = new RuntimeException("Database constraint violation");
+            given(signatureService.sign(any(), any(), any(), any()))
+                  .willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class)))
+                  .willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willThrow(dbException);
+
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason))
                   .isSameAs(dbException);
 
             then(signatureService).should().sign(any(), any(), any(), any());

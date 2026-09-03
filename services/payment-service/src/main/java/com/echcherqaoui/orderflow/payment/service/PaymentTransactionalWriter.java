@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.FAILED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.PENDING;
 
 @Component
@@ -33,8 +34,26 @@ public class PaymentTransactionalWriter {
               .setTotalAmountCents(totalAmountCents)
               .setStatus(PENDING);
 
-        paymentRepository.save(payment);
+        paymentRepository.saveAndFlush(payment); // flush now so a duplicate orderId throws immediately, not later
 
         outboxWriter.publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse);
+    }
+
+    @Transactional
+    public void saveFailurePaymentAndOutbox(UUID orderId,
+                                            String userId,
+                                            long totalAmountCents,
+                                            String triggerEventId,
+                                            String reason) {
+        Payment payment = new Payment()
+              .setOrderId(orderId)
+              .setUserId(userId)
+              .setTotalAmountCents(totalAmountCents)
+              .setStatus(FAILED)
+              .setFailureReason(reason);
+
+        paymentRepository.saveAndFlush(payment); // flush now so a duplicate orderId throws immediately, not later
+
+        outboxWriter.publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason);
     }
 }
