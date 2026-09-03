@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.payment.mockstripe;
 
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
+import com.echcherqaoui.orderflow.payment.exception.domain.PaymentGatewayTransientException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -10,11 +11,13 @@ import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -81,6 +84,17 @@ class MockPaymentGatewayTest {
             assertThat(savedIntent.paymentIntentId()).isEqualTo(response.paymentIntentId());
             assertThat(savedIntent.clientSecret()).isEqualTo(response.clientSecret());
         }
+
+        @Test
+        @DisplayName("throws PaymentGatewayTransientException when simulatePspOutage is true")
+        void createIntent_simulateOutageTrue_throwsTransientException() {
+            ReflectionTestUtils.setField(mockPaymentGateway, "simulatePspOutage", true);
+
+            assertThatThrownBy(() -> mockPaymentGateway.createIntent(idempotencyKey, totalAmountCents))
+                  .isInstanceOf(PaymentGatewayTransientException.class);
+
+            then(intentStore).shouldHaveNoInteractions();
+        }
     }
 
     @Nested
@@ -88,8 +102,8 @@ class MockPaymentGatewayTest {
     class CancelIntent {
 
         @Test
-        @DisplayName("delegates cancellation to intent store remove")
-        void cancelIntent_delegatesToStoreRemove() {
+        @DisplayName("delegates cancellation to intent store remove when ID is valid")
+        void cancelIntent_validId_delegatesToStoreRemove() {
             mockPaymentGateway.cancelIntent(existingPaymentIntentId);
 
             then(intentStore).should().remove(existingPaymentIntentId);
