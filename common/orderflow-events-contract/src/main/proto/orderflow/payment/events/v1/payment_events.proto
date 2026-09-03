@@ -7,8 +7,15 @@ option java_multiple_files = true;
 
 import "orderflow/common/v1/metadata.proto";
 
+// Emitted when PSP intent creation succeeds and session state is saved.
 message PaymentInitiatedEvent {
   orderflow.common.v1.MessageMetadata metadata = 1;
   string payment_intent_id = 2;
   string client_secret = 3;
+}
+
+// Emitted when PSP intent creation fails permanently.
+message PaymentInitializationFailedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string reason = 2;
 }

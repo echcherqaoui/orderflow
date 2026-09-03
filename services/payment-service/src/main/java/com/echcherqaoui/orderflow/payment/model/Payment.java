@@ -32,7 +32,7 @@ public class Payment {
     @Column(nullable = false, unique = true)
     private UUID orderId;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String paymentIntentId;
 
     @Column(nullable = false)
