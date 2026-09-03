@@ -108,4 +108,56 @@ class PaymentTransactionalWriterIT extends AbstractIntegrationTest {
             assertThat(outboxEventRepository.findAll()).isEmpty();
         }
     }
+
+    @Nested
+    @DisplayName("saveFailurePaymentAndOutbox()")
+    class SaveFailurePaymentAndOutbox {
+
+        private final String failureReason = "PSP gateway connection timeout";
+
+        @Test
+        @DisplayName("atomic commit persists failed payment entity and failure outbox event within the same database transaction")
+        void saveFailurePaymentAndOutbox_success_persistsFailedPaymentAndOutboxAtomically() {
+            transactionalWriter.saveFailurePaymentAndOutbox(orderId, userId, totalAmountCents, triggerEventId, failureReason);
+
+            assertThat(paymentRepository.existsByOrderId(orderId)).isTrue();
+
+            List<Payment> payments = paymentRepository.findAll();
+            assertThat(payments).hasSize(1);
+
+            Payment payment = payments.getFirst();
+            assertThat(payment.getOrderId()).isEqualTo(orderId);
+            assertThat(payment.getPaymentIntentId()).isNull();
+            assertThat(payment.getUserId()).isEqualTo(userId);
+            assertThat(payment.getTotalAmountCents()).isEqualTo(totalAmountCents);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(payment.getFailureReason()).isEqualTo(failureReason);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+
+            OutboxEvent outboxEvent = outboxEvents.getFirst();
+            assertThat(outboxEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(outboxEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(outboxEvent.getEventType()).isEqualTo("PaymentInitializationFailedEvent");
+            assertThat(outboxEvent.getPayload()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("outbox persistence exception causes total transactional rollback for failed payment insertion")
+        void saveFailurePaymentAndOutbox_outboxFailure_rollsBackEntireTransaction() {
+            willThrow(new RuntimeException("Outbox database persistence failure"))
+                  .given(outboxEventRepository)
+                  .save(any(OutboxEvent.class));
+
+            assertThatThrownBy(() ->
+                  transactionalWriter.saveFailurePaymentAndOutbox(orderId, userId, totalAmountCents, triggerEventId, failureReason)
+            ).isInstanceOf(RuntimeException.class)
+                  .hasMessage("Outbox database persistence failure");
+
+            assertThat(paymentRepository.existsByOrderId(orderId)).isFalse();
+            assertThat(paymentRepository.findAll()).isEmpty();
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+    }
 }

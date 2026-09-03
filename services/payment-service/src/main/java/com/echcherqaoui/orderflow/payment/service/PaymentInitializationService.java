@@ -5,6 +5,8 @@ import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -19,6 +21,20 @@ public class PaymentInitializationService {
     private final PaymentGateway paymentGateway;
     private final PaymentTransactionalWriter transactionalWriter;
 
+    private boolean executeWriterCall(@NonNull Runnable writerCall, UUID orderId) {
+        try {
+            writerCall.run();
+            return true;
+        } catch (DataIntegrityViolationException ex) {
+            if (paymentRepository.existsByOrderId(orderId)) {
+                log.info("Duplicate order ID {} intercepted at DB level. Ignoring.", orderId);
+                return false;
+            }
+            log.error("Data integrity violation non-related to duplicate order ID for order {}", orderId, ex);
+            throw ex;
+        }
+    }
+
     public void initializePayment(UUID orderId,
                                   String userId,
                                   long totalAmountCents,
@@ -32,16 +48,31 @@ public class PaymentInitializationService {
             return;
         }
 
-        //External call (Mock execution) OUTSIDE database transaction
-        CreatePaymentIntentResponse pspResponse = paymentGateway.createIntent(orderId.toString(), totalAmountCents);
+        CreatePaymentIntentResponse pspResponse;
 
-        // Persist state & outbox atomically INSIDE database transaction
-        transactionalWriter.savePaymentAndOutbox(
+        try {
+            //External call (Mock execution) OUTSIDE database transaction
+            pspResponse = paymentGateway.createIntent(orderId.toString(), totalAmountCents);
+        } catch (Exception ex) {
+            log.error("Failed to create PSP payment intent for orderId: {}", orderId, ex);
+
+            // Persist FAILED status & outbox event atomically
+            executeWriterCall(() -> transactionalWriter.saveFailurePaymentAndOutbox(
+                  orderId,
+                  userId,
+                  totalAmountCents,
+                  triggerEventId,
+                  ex.getMessage()
+            ), orderId);
+            return;
+        }
+
+        executeWriterCall(() -> transactionalWriter.savePaymentAndOutbox(
               orderId,
               userId,
               totalAmountCents,
               pspResponse,
               triggerEventId
-        );
+        ), orderId);
     }
 }

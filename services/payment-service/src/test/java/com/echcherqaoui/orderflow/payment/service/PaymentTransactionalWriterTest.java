@@ -60,12 +60,12 @@ class PaymentTransactionalWriterTest {
         @Test
         @DisplayName("successful execution constructs pending payment, saves to repository, and publishes outbox event")
         void savePaymentAndOutbox_success_persistsPaymentAndPublishesOutboxEvent() {
-            given(paymentRepository.save(any(Payment.class)))
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
                   .willAnswer(invocation -> invocation.getArgument(0));
 
             paymentTransactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
 
-            then(paymentRepository).should().save(paymentCaptor.capture());
+            then(paymentRepository).should().saveAndFlush(paymentCaptor.capture());
             Payment savedPayment = paymentCaptor.getValue();
 
             assertThat(savedPayment).isNotNull();
@@ -83,12 +83,12 @@ class PaymentTransactionalWriterTest {
         void savePaymentAndOutbox_repositorySaveFails_propagatesExceptionAndAbortsOutbox() {
             RuntimeException dbException = new RuntimeException("Database constraint violation");
 
-            given(paymentRepository.save(any(Payment.class))).willThrow(dbException);
+            given(paymentRepository.saveAndFlush(any(Payment.class))).willThrow(dbException);
 
             assertThatThrownBy(() -> paymentTransactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId))
                   .isSameAs(dbException);
 
-            then(paymentRepository).should().save(any(Payment.class));
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
             verifyNoInteractions(outboxWriter);
         }
 
@@ -97,7 +97,7 @@ class PaymentTransactionalWriterTest {
         void savePaymentAndOutbox_outboxWriterFails_propagatesException() {
             RuntimeException outboxException = new RuntimeException("Outbox publication error");
 
-            given(paymentRepository.save(any(Payment.class)))
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
                   .willAnswer(invocation -> invocation.getArgument(0));
             willThrow(outboxException)
                   .given(outboxWriter)
@@ -106,8 +106,69 @@ class PaymentTransactionalWriterTest {
             assertThatThrownBy(() -> paymentTransactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId))
                   .isSameAs(outboxException);
 
-            then(paymentRepository).should().save(any(Payment.class));
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
             then(outboxWriter).should().publishPaymentInitiatedEvent(orderId, triggerEventId, pspResponse);
+        }
+    }
+
+    @Nested
+    @DisplayName("saveFailurePaymentAndOutbox()")
+    class SaveFailurePaymentAndOutbox {
+
+        private final String reason = "PSP gateway unreachable";
+
+        @Test
+        @DisplayName("successful execution constructs failed payment, saves to repository, and publishes failure outbox event")
+        void saveFailurePaymentAndOutbox_success_persistsFailedPaymentAndPublishesOutboxEvent() {
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            paymentTransactionalWriter.saveFailurePaymentAndOutbox(orderId, userId, totalAmountCents, triggerEventId, reason);
+
+            then(paymentRepository).should().saveAndFlush(paymentCaptor.capture());
+            Payment savedPayment = paymentCaptor.getValue();
+
+            assertThat(savedPayment).isNotNull();
+            assertThat(savedPayment.getOrderId()).isEqualTo(orderId);
+            assertThat(savedPayment.getPaymentIntentId()).isNull();
+            assertThat(savedPayment.getUserId()).isEqualTo(userId);
+            assertThat(savedPayment.getTotalAmountCents()).isEqualTo(totalAmountCents);
+            assertThat(savedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(savedPayment.getFailureReason()).isEqualTo(reason);
+
+            then(outboxWriter).should().publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason);
+        }
+
+        @Test
+        @DisplayName("repository save failure propagates exception and aborts outbox publication")
+        void saveFailurePaymentAndOutbox_repositorySaveFails_propagatesExceptionAndAbortsOutbox() {
+            RuntimeException dbException = new RuntimeException("Database constraint violation");
+
+            given(paymentRepository.saveAndFlush(any(Payment.class))).willThrow(dbException);
+
+            assertThatThrownBy(() -> paymentTransactionalWriter.saveFailurePaymentAndOutbox(orderId, userId, totalAmountCents, triggerEventId, reason))
+                  .isSameAs(dbException);
+
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("outbox publication failure propagates exception after payment is saved")
+        void saveFailurePaymentAndOutbox_outboxWriterFails_propagatesException() {
+            RuntimeException outboxException = new RuntimeException("Outbox publication error");
+
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+            willThrow(outboxException)
+                  .given(outboxWriter)
+                  .publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason);
+
+            assertThatThrownBy(() -> paymentTransactionalWriter.saveFailurePaymentAndOutbox(orderId, userId, totalAmountCents, triggerEventId, reason))
+                  .isSameAs(outboxException);
+
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
+            then(outboxWriter).should().publishPaymentInitializationFailedEvent(orderId, triggerEventId, reason);
         }
     }
 }

@@ -74,14 +74,6 @@ class PaymentEntityConstraintIT extends AbstractIntegrationTest {
                     "order_id"
               ),
               Arguments.of(
-                    "NULL payment_intent_id via native INSERT",
-                    (Consumer<EntityManager>) em -> em.createNativeQuery("""
-                            INSERT INTO payments (id, order_id, payment_intent_id, user_id, total_amount_cents, status, failure_reason, version, created_at, updated_at)
-                            VALUES (gen_random_uuid(), gen_random_uuid(), NULL, 'user1', 1000, 'PENDING', NULL, 0, now(), now())
-                        """).executeUpdate(),
-                    "payment_intent_id"
-              ),
-              Arguments.of(
                     "NULL user_id via native INSERT",
                     (Consumer<EntityManager>) em -> em.createNativeQuery("""
                             INSERT INTO payments (id, order_id, payment_intent_id, user_id, total_amount_cents, status, failure_reason, version, created_at, updated_at)
@@ -117,12 +109,15 @@ class PaymentEntityConstraintIT extends AbstractIntegrationTest {
         }
 
         @Test
-        @DisplayName("Optional failure_reason remains NULL without violating table constraints")
+        @DisplayName("Optional payment_intent_id and failure_reason remain NULL without violating table constraints")
         void nullableFields_stayNull_isValid() {
-            Payment payment = newPayment().setFailureReason(null);
+            Payment payment = newPayment()
+                  .setPaymentIntentId(null)
+                  .setFailureReason(null);
             assertThatCode(() -> paymentRepository.saveAndFlush(payment)).doesNotThrowAnyException();
 
             Payment reloaded = paymentRepository.findById(payment.getId()).orElseThrow();
+            assertThat(reloaded.getPaymentIntentId()).isNull();
             assertThat(reloaded.getFailureReason()).isNull();
         }
     }

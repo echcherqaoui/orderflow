@@ -1,7 +1,6 @@
 package com.echcherqaoui.orderflow.payment.config;
 
 import com.echcherqaoui.orderflow.exception.core.EventProcessingException;
-import com.echcherqaoui.orderflow.exception.core.EventSecurityException;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.context.annotation.Bean;
@@ -32,7 +31,6 @@ public class KafkaRetryConfig {
     private static DefaultErrorHandler getHandler(DeadLetterPublishingRecoverer recoverer) {
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, buildBackOff());
         errorHandler.addNotRetryableExceptions(
-              EventSecurityException.class,
               DataIntegrityViolationException.class,
               DeserializationException.class,
               EventProcessingException.class,

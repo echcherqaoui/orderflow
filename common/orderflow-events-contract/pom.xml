@@ -76,14 +76,16 @@
                                 <!-- Command Schema (RecordNameStrategy) -->
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>src/main/proto/orderflow/payment/commands/v1/payment_commands.proto</orderflow.payment.commands.v1.ChargePaymentCommand>
 
-                                <!-- Event Schema (RecordNameStrategy) -->
+                                <!-- Event Schemas (RecordNameStrategy) -->
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitiatedEvent>
+                                <orderflow.payment.events.v1.PaymentInitializationFailedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
                             </subjects>
 
                             <schemaTypes>
                                 <orderflow.common.v1.metadata>PROTOBUF</orderflow.common.v1.metadata>
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>PROTOBUF</orderflow.payment.commands.v1.ChargePaymentCommand>
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitiatedEvent>
+                                <orderflow.payment.events.v1.PaymentInitializationFailedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
                             </schemaTypes>
 
                             <references>
@@ -100,12 +102,20 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.payment.events.v1.PaymentInitiatedEvent>
+
+                                <orderflow.payment.events.v1.PaymentInitializationFailedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.events.v1.PaymentInitializationFailedEvent>
                             </references>
 
                             <compatibilityLevels>
                                 <orderflow.common.v1.metadata>BACKWARD</orderflow.common.v1.metadata>
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>BACKWARD</orderflow.payment.commands.v1.ChargePaymentCommand>
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>BACKWARD</orderflow.payment.events.v1.PaymentInitiatedEvent>
+                                <orderflow.payment.events.v1.PaymentInitializationFailedEvent>BACKWARD</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
                             </compatibilityLevels>
                         </configuration>
                     </plugin>

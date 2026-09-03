@@ -58,6 +58,17 @@ spring:
       auto.register.schemas: false
       use.latest.version: true
 
+# ── Actuator (Dev Tooling) ───────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: env, refresh  #(dev-only: toggle @RefreshScope beans without restart)
+  endpoint:
+    env:
+      post:
+        enabled: true
+
 # ── Order Config ─────────────────────────────────────────────
 app:
   security:
@@ -68,3 +79,5 @@ orderflow:
   kafka:
     topics:
       payment-commands: orderflow.payment.commands
+  mock-psp:
+    simulate-outage: false
