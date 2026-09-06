@@ -14,3 +14,10 @@ message ChargePaymentCommand {
   int64 total_price_cents = 4;
   string currency = 5;
 }
+
+message CancelPaymentCommand {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string payment_intent_id = 3;
+  string reason = 4;
+}

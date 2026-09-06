@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package orderflow.inventory.events.v1;
+
+option java_package = "com.echcherqaoui.orderflow.contracts.inventory.events.v1";
+option java_multiple_files = true;
+
+import "google/protobuf/timestamp.proto";
+import "orderflow/common/v1/metadata.proto";
+
+message ReservationExtendedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string cart_id = 2;
+  google.protobuf.Timestamp new_expires_at = 3;
+}
+
+message InventoryReleasedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string cart_id = 2;
+}
+
+message ReservationExtensionFailedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string cart_id = 2;
+  string reason = 3;
+}
