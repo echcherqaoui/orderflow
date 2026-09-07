@@ -1,8 +1,8 @@
 package com.echcherqaoui.orderflow.inventory.repository;
 
-import com.echcherqaoui.orderflow.inventory.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.inventory.model.InventoryReservation;
 import com.echcherqaoui.orderflow.inventory.model.ReservationStatus;
+import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -24,7 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class InventoryReservationRepositoryIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class InventoryReservationRepositoryIT implements WithPostgres {
 
     @Autowired
     private InventoryReservationRepository reservationRepository;
@@ -139,5 +141,63 @@ class InventoryReservationRepositoryIT extends AbstractIntegrationTest {
         assertThat(reservationRepository.findById(res1.getId()).orElseThrow().getStatus()).isEqualTo(EXPIRED);
         assertThat(reservationRepository.findById(res2.getId()).orElseThrow().getStatus()).isEqualTo(EXPIRED);
         assertThat(reservationRepository.findById(res3.getId()).orElseThrow().getStatus()).isEqualTo(PENDING);
+    }
+
+    @Test
+    @DisplayName("extendReservationAndSetOrderId updates expiry and attaches orderId for active PENDING reservations")
+    void extendReservationAndSetOrderId_activePending_updatesExpiryAndOrderId() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant currentExpiry = now.plus(10, ChronoUnit.MINUTES);
+        Instant newExpiry = now.plus(30, ChronoUnit.MINUTES);
+        UUID orderId = UUID.randomUUID();
+        UUID itemId3 = UUID.randomUUID();
+
+        InventoryReservation res1 = reservationRepository.save(newReservation(cartId, itemId1, PENDING, currentExpiry));
+        InventoryReservation res2 = reservationRepository.save(newReservation(cartId, itemId2, PENDING, currentExpiry));
+
+        // Non-matching records: expired PENDING (using itemId3), non-PENDING status, or different cart
+        InventoryReservation expiredRes = reservationRepository.save(newReservation(cartId, itemId3, PENDING, now.minus(5, ChronoUnit.MINUTES)));
+        InventoryReservation confirmedRes = reservationRepository.save(newReservation(cartId, itemId2, CONFIRMED, currentExpiry));
+        InventoryReservation otherCartRes = reservationRepository.save(newReservation("other-cart", itemId1, PENDING, currentExpiry));
+
+        reservationRepository.flush();
+
+        int updatedCount = reservationRepository.extendReservationAndSetOrderId(newExpiry, orderId, cartId, now);
+
+        assertThat(updatedCount).isEqualTo(2);
+
+        entityManager.clear();
+
+        InventoryReservation reloaded1 = reservationRepository.findById(res1.getId()).orElseThrow();
+        InventoryReservation reloaded2 = reservationRepository.findById(res2.getId()).orElseThrow();
+        InventoryReservation reloadedExpired = reservationRepository.findById(expiredRes.getId()).orElseThrow();
+        InventoryReservation reloadedConfirmed = reservationRepository.findById(confirmedRes.getId()).orElseThrow();
+        InventoryReservation reloadedOtherCart = reservationRepository.findById(otherCartRes.getId()).orElseThrow();
+
+        assertThat(reloaded1.getExpiresAt()).isEqualTo(newExpiry);
+        assertThat(reloaded1.getOrderId()).isEqualTo(orderId);
+
+        assertThat(reloaded2.getExpiresAt()).isEqualTo(newExpiry);
+        assertThat(reloaded2.getOrderId()).isEqualTo(orderId);
+
+        assertThat(reloadedExpired.getOrderId()).isNull();
+        assertThat(reloadedConfirmed.getOrderId()).isNull();
+        assertThat(reloadedOtherCart.getOrderId()).isNull();
+    }
+
+    @Test
+    @DisplayName("extendReservationAndSetOrderId returns 0 when no active matching reservations exist")
+    void extendReservationAndSetOrderId_noMatchingActiveReservation_returnsZero() {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant newExpiry = now.plus(30, ChronoUnit.MINUTES);
+        UUID orderId = UUID.randomUUID();
+
+        // Expired reservation for cartId
+        reservationRepository.save(newReservation(cartId, itemId1, PENDING, now.minus(1, ChronoUnit.MINUTES)));
+        reservationRepository.flush();
+
+        int updatedCount = reservationRepository.extendReservationAndSetOrderId(newExpiry, orderId, cartId, now);
+
+        assertThat(updatedCount).isZero();
     }
 }

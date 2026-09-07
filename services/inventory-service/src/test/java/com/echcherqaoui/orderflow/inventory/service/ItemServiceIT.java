@@ -1,19 +1,19 @@
-package com.echcherqaoui.orderflow.inventory.service.impl;
+package com.echcherqaoui.orderflow.inventory.service;
 
-import com.echcherqaoui.orderflow.inventory.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.inventory.dto.request.CreateItemRequest;
 import com.echcherqaoui.orderflow.inventory.dto.response.ItemResponse;
 import com.echcherqaoui.orderflow.inventory.exception.domain.ItemAlreadyExistsException;
 import com.echcherqaoui.orderflow.inventory.model.Item;
 import com.echcherqaoui.orderflow.inventory.repository.InventoryReservationRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
+import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
 import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 
@@ -21,11 +21,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
-@Transactional
-class ItemServiceImplIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class ItemServiceIT implements WithPostgres {
 
     @Autowired
-    private ItemServiceImpl itemService;
+    private ItemService itemService;
 
     @Autowired
     private ItemRepository itemRepository;

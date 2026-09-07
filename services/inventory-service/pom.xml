@@ -30,6 +30,26 @@
 
         <dependency>
             <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>common-kafka</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>common-outbox</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>common-security</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>orderflow-events-contract</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
             <artifactId>orderflow-grpc-contract</artifactId>
         </dependency>
 
@@ -112,6 +132,12 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
             <scope>test</scope>
         </dependency>
 

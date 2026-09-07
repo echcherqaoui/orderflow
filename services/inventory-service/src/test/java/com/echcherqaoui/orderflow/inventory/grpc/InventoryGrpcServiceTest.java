@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.inventory.grpc;
 
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
-import com.echcherqaoui.orderflow.inventory.service.impl.ReservationServiceImpl;
+import com.echcherqaoui.orderflow.inventory.service.ReservationService;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 class InventoryGrpcServiceTest {
 
     @Mock
-    private ReservationServiceImpl reservationService;
+    private ReservationService reservationService;
 
     @Mock
     private StreamObserver<ReserveInventoryResponse> responseObserver;

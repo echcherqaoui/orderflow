@@ -1,5 +1,4 @@
 include .env.local
-export
 
 # ══════════════════════════════════════════════════════════════════
 #  Orderflow — Makefile

@@ -1,4 +1,4 @@
-package com.echcherqaoui.orderflow.inventory.service.impl;
+package com.echcherqaoui.orderflow.inventory.service;
 
 import com.echcherqaoui.orderflow.inventory.dto.request.CreateItemRequest;
 import com.echcherqaoui.orderflow.inventory.dto.response.ItemResponse;
@@ -25,13 +25,13 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class ItemServiceImplTest {
+class ItemServiceTest {
 
     @Mock
     private ItemRepository itemRepository;
 
     @InjectMocks
-    private ItemServiceImpl itemService;
+    private ItemService itemService;
 
     @Captor
     private ArgumentCaptor<Item> itemCaptor;
