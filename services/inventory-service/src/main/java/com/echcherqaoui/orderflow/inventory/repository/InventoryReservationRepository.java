@@ -19,6 +19,7 @@ import java.util.UUID;
 
 @Repository
 public interface InventoryReservationRepository extends JpaRepository<InventoryReservation, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<InventoryReservation> findByCartIdAndStatus(String cartId, ReservationStatus status);
 
     @Query("""
@@ -26,15 +27,16 @@ public interface InventoryReservationRepository extends JpaRepository<InventoryR
                 WHERE r.status = :status AND r.expiresAt < :now
           """)
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")}) // -2 = SKIP LOCKED in Postgres/Hibernate
+    @QueryHints({@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2")})
+        // -2 = SKIP LOCKED in Postgres/Hibernate
     List<InventoryReservation> findExpiredPendingForUpdate(@Param("status") ReservationStatus status,
                                                            @Param("now") Instant now,
                                                            Pageable pageable);
 
     @Modifying
     @Query("""
-           UPDATE InventoryReservation r
-           SET r.expiresAt = :newExpiry
+            UPDATE InventoryReservation r
+            SET r.expiresAt = :newExpiry
                 WHERE r.cartId = :cartId AND r.status = :status
           """)
     void updateExpiresAtByCartId(@Param("cartId") String cartId,
@@ -43,10 +45,23 @@ public interface InventoryReservationRepository extends JpaRepository<InventoryR
 
     @Modifying
     @Query("""
-           UPDATE InventoryReservation r
-           SET r.status = :status
+            UPDATE InventoryReservation r
+            SET r.status = :status
                 WHERE r.id IN :ids
           """)
     void updateStatusByIds(@Param("ids") List<UUID> ids,
-                          @Param("status") ReservationStatus status);
+                           @Param("status") ReservationStatus status);
+
+    @Modifying
+    @Query("""
+            UPDATE InventoryReservation r
+            SET r.expiresAt = :newExpiresAt, r.orderId = :orderId
+                WHERE r.cartId = :cartId
+                    AND r.expiresAt > :now
+                    AND r.status = 'PENDING'
+          """)
+    int extendReservationAndSetOrderId(@Param("newExpiresAt") Instant newExpiresAt,
+                                       @Param("orderId") UUID orderId,
+                                       @Param("cartId") String cartId,
+                                       @Param("now") Instant now);
 }

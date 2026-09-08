@@ -67,25 +67,49 @@
                             <schemaRegistryUrls>
                                 <schemaRegistryUrl>${schema.registry.url}</schemaRegistryUrl>
                             </schemaRegistryUrls>
+
                             <messagePath>src/main/proto</messagePath>
 
                             <subjects>
                                 <!-- Matched to QualifiedReferenceSubjectNameStrategy: <package>.<filename> -->
                                 <orderflow.common.v1.metadata>src/main/proto/orderflow/common/v1/metadata.proto</orderflow.common.v1.metadata>
 
-                                <!-- Command Schema (RecordNameStrategy) -->
+                                <!-- Command Schemas (RecordNameStrategy) -->
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>src/main/proto/orderflow/payment/commands/v1/payment_commands.proto</orderflow.payment.commands.v1.ChargePaymentCommand>
+                                <orderflow.payment.commands.v1.CancelPaymentCommand>src/main/proto/orderflow/payment/commands/v1/payment_commands.proto</orderflow.payment.commands.v1.CancelPaymentCommand>
+                                <orderflow.inventory.commands.v1.ReleaseInventoryCommand>src/main/proto/orderflow/inventory/commands/v1/inventory_commands.proto</orderflow.inventory.commands.v1.ReleaseInventoryCommand>
+                                <orderflow.inventory.commands.v1.ExtendReservationCommand>src/main/proto/orderflow/inventory/commands/v1/inventory_commands.proto</orderflow.inventory.commands.v1.ExtendReservationCommand>
 
-                                <!-- Event Schemas (RecordNameStrategy) -->
+                                <!-- Payment Event Schemas (RecordNameStrategy) -->
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitiatedEvent>
                                 <orderflow.payment.events.v1.PaymentInitializationFailedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
+
+                                <!-- Inventory Event Schemas (RecordNameStrategy) -->
+                                <orderflow.inventory.events.v1.ReservationExtendedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.ReservationExtendedEvent>
+                                <orderflow.inventory.events.v1.InventoryReleasedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.InventoryReleasedEvent>
+                                <orderflow.inventory.events.v1.ReservationExtensionFailedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.ReservationExtensionFailedEvent>
                             </subjects>
 
                             <schemaTypes>
+                                <!-- Common / Metadata -->
                                 <orderflow.common.v1.metadata>PROTOBUF</orderflow.common.v1.metadata>
+
+                                <!-- Payment Commands -->
                                 <orderflow.payment.commands.v1.ChargePaymentCommand>PROTOBUF</orderflow.payment.commands.v1.ChargePaymentCommand>
+                                <orderflow.payment.commands.v1.CancelPaymentCommand>PROTOBUF</orderflow.payment.commands.v1.CancelPaymentCommand>
+
+                                <!-- Inventory Commands -->
+                                <orderflow.inventory.commands.v1.ReleaseInventoryCommand>PROTOBUF</orderflow.inventory.commands.v1.ReleaseInventoryCommand>
+                                <orderflow.inventory.commands.v1.ExtendReservationCommand>PROTOBUF</orderflow.inventory.commands.v1.ExtendReservationCommand>
+
+                                <!-- Payment Events -->
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitiatedEvent>
                                 <orderflow.payment.events.v1.PaymentInitializationFailedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
+
+                                <!-- Inventory Events -->
+                                <orderflow.inventory.events.v1.ReservationExtendedEvent>PROTOBUF</orderflow.inventory.events.v1.ReservationExtendedEvent>
+                                <orderflow.inventory.events.v1.InventoryReleasedEvent>PROTOBUF</orderflow.inventory.events.v1.InventoryReleasedEvent>
+                                <orderflow.inventory.events.v1.ReservationExtensionFailedEvent>PROTOBUF</orderflow.inventory.events.v1.ReservationExtensionFailedEvent>
                             </schemaTypes>
 
                             <references>
@@ -95,6 +119,20 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.payment.commands.v1.ChargePaymentCommand>
+
+                                <orderflow.inventory.commands.v1.ReleaseInventoryCommand>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.inventory.commands.v1.ReleaseInventoryCommand>
+
+                                <orderflow.inventory.commands.v1.ExtendReservationCommand>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.inventory.commands.v1.ExtendReservationCommand>
 
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>
                                     <reference>
@@ -109,14 +147,35 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.payment.events.v1.PaymentInitializationFailedEvent>
-                            </references>
 
-                            <compatibilityLevels>
-                                <orderflow.common.v1.metadata>BACKWARD</orderflow.common.v1.metadata>
-                                <orderflow.payment.commands.v1.ChargePaymentCommand>BACKWARD</orderflow.payment.commands.v1.ChargePaymentCommand>
-                                <orderflow.payment.events.v1.PaymentInitiatedEvent>BACKWARD</orderflow.payment.events.v1.PaymentInitiatedEvent>
-                                <orderflow.payment.events.v1.PaymentInitializationFailedEvent>BACKWARD</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
-                            </compatibilityLevels>
+                                <orderflow.inventory.events.v1.ReservationExtendedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.inventory.events.v1.ReservationExtendedEvent>
+
+                                <orderflow.inventory.events.v1.InventoryReleasedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.inventory.events.v1.InventoryReleasedEvent>
+
+                                <orderflow.inventory.events.v1.ReservationExtensionFailedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.inventory.events.v1.ReservationExtensionFailedEvent>
+
+                                <orderflow.payment.commands.v1.CancelPaymentCommand>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.commands.v1.CancelPaymentCommand>
+                            </references>
                         </configuration>
                     </plugin>
                 </plugins>

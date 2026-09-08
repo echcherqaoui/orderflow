@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.order.model;
 
-import com.echcherqaoui.orderflow.order.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.order.repository.OrderRepository;
+import com.echcherqaoui.orderflow.order.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
@@ -16,6 +16,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -28,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class OrderItemEntityConstraintIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class OrderItemEntityConstraintIT implements WithPostgres {
 
     @Autowired
     private EntityManager entityManager;

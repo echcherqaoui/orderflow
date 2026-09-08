@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.inventory.model;
 
-import com.echcherqaoui.orderflow.inventory.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
+import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +15,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Set;
 import java.util.UUID;
@@ -27,7 +28,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class ItemEntityConstraintIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class ItemEntityConstraintIT  implements WithPostgres {
 
     @Autowired
     private EntityManager entityManager;
@@ -153,7 +155,9 @@ class ItemEntityConstraintIT extends AbstractIntegrationTest {
         String sharedName = "duplicate-name-" + UUID.randomUUID();
         itemRepository.saveAndFlush(newItem(5, 5).setName(sharedName));
 
-        assertThatThrownBy(() -> itemRepository.saveAndFlush(newItem(5, 5).setName(sharedName)))
+        Item item = newItem(5, 5).setName(sharedName);
+
+        assertThatThrownBy(() -> itemRepository.saveAndFlush(item))
               .isInstanceOfAny(PersistenceException.class, DataIntegrityViolationException.class)
               .satisfies(e -> assertThat(NestedExceptionUtils.getRootCause(e))
                     .hasMessageContaining("uq_items_name")

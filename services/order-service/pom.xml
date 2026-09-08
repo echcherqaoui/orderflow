@@ -30,6 +30,11 @@
 
         <dependency>
             <groupId>com.echcherqaoui.orderflow</groupId>
+            <artifactId>common-kafka</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.echcherqaoui.orderflow</groupId>
             <artifactId>common-outbox</artifactId>
         </dependency>
 

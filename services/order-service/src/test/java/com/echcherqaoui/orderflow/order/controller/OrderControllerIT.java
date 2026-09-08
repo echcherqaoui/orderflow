@@ -3,8 +3,8 @@ package com.echcherqaoui.orderflow.order.controller;
 import com.echcherqaoui.orderflow.inventory.grpc.InventoryServiceGrpc;
 import com.echcherqaoui.orderflow.inventory.grpc.ReserveInventoryRequest;
 import com.echcherqaoui.orderflow.inventory.grpc.ReserveInventoryResponse;
-import com.echcherqaoui.orderflow.order.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
+import com.echcherqaoui.orderflow.order.support.WithPostgres;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.grpc.Server;
 import io.grpc.Status;
@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -36,7 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class OrderControllerIT extends AbstractIntegrationTest {
+@ActiveProfiles
+class OrderControllerIT implements WithPostgres {
 
     private static final String IN_PROCESS_SERVER_NAME = "test-inventory-service-controller";
 

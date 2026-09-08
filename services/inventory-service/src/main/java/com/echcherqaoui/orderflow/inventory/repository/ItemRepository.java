@@ -37,5 +37,4 @@ public interface ItemRepository extends JpaRepository<Item, UUID>, ItemRepositor
                WHERE i.id IN :itemIds
           """)
     void incrementStockBatch(@Param("itemIds") Set<UUID> itemIds);
-
 }

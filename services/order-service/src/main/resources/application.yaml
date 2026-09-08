@@ -74,3 +74,9 @@ app:
 
 api:
   base-path: /api/v1
+
+orderflow:
+  kafka:
+    topics:
+      payment-events: orderflow.payment.events
+      inventory-events: orderflow.inventory.events

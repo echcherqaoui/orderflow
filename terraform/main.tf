@@ -7,6 +7,8 @@ locals {
 # ─────────────────────────────────────────────────────────────────────────────
 # PAYMENT SERVICE TOPICS (Receiver Inbox + DLT)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# --- Payment Commands & DLT ---
 resource "kafka_topic" "orderflow_payment_commands" {
   name               = "orderflow.payment.commands"
   replication_factor = 1 # single broker — dev only, increase for production
@@ -35,6 +37,8 @@ resource "kafka_topic" "orderflow_payment_commands_dlt" {
   }
 }
 
+# --- Payment Events & DLT ---
+
 resource "kafka_topic" "orderflow_payment_events" {
   name               = "orderflow.payment.events"
   replication_factor = 1
@@ -53,6 +57,70 @@ resource "kafka_topic" "orderflow_payment_events_dlt" {
   name               = "orderflow.payment.events.dlt"
   replication_factor = 1
   partitions         = 1  # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INVENTORY SERVICE TOPICS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# --- Inventory Commands & DLT ---
+
+resource "kafka_topic" "orderflow_inventory_commands" {
+  name               = "orderflow.inventory.commands"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_inventory_commands_dlt" {
+  name               = "orderflow.inventory.commands.dlt"
+  replication_factor = 1
+  partitions         = 1 # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# --- Inventory Events & DLT ---
+
+resource "kafka_topic" "orderflow_inventory_events" {
+  name               = "orderflow.inventory.events"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_inventory_events_dlt" {
+  name               = "orderflow.inventory.events.dlt"
+  replication_factor = 1
+  partitions         = 1 # DLT need only 1 partition
   config = {
     "cleanup.policy" = "delete"
     "retention.ms"   = local.retention_7_days

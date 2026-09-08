@@ -1,16 +1,18 @@
 package com.echcherqaoui.orderflow.inventory.scheduler;
 
-import com.echcherqaoui.orderflow.inventory.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.inventory.model.InventoryReservation;
 import com.echcherqaoui.orderflow.inventory.model.Item;
 import com.echcherqaoui.orderflow.inventory.model.ReservationStatus;
 import com.echcherqaoui.orderflow.inventory.repository.InventoryReservationRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
+import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -23,7 +25,8 @@ import static com.echcherqaoui.orderflow.inventory.model.ReservationStatus.PENDI
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-class ReservationSweeperIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class ReservationSweeperIT implements WithPostgres {
 
     @Autowired
     private ReservationSweeper reservationSweeper;
@@ -34,8 +37,17 @@ class ReservationSweeperIT extends AbstractIntegrationTest {
     @Autowired
     private InventoryReservationRepository reservationRepository;
 
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
     private Item item1;
     private Item item2;
+
+    private List<InventoryReservation> fetchPending(String cartId) {
+        return transactionTemplate.execute(status ->
+              reservationRepository.findByCartIdAndStatus(cartId, ReservationStatus.PENDING)
+        );
+    }
 
     @BeforeEach
     void setUp() {
@@ -67,7 +79,7 @@ class ReservationSweeperIT extends AbstractIntegrationTest {
 
         assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(5);
 
-        List<InventoryReservation> pending = reservationRepository.findByCartIdAndStatus("cart-1", PENDING);
+        List<InventoryReservation> pending = fetchPending("cart-1");
         assertThat(pending).hasSize(1);
     }
 

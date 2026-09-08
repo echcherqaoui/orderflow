@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package orderflow.inventory.commands.v1;
+
+option java_package = "com.echcherqaoui.orderflow.contracts.inventory.commands.v1";
+option java_multiple_files = true;
+
+import "orderflow/common/v1/metadata.proto";
+
+message ReleaseInventoryCommand {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string cart_id = 2;
+}
+
+message ExtendReservationCommand {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string cart_id = 2;
+  string order_id = 3;
+}

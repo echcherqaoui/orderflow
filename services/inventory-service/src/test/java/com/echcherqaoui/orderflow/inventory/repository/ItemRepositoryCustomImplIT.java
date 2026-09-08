@@ -1,12 +1,15 @@
 package com.echcherqaoui.orderflow.inventory.repository;
 
-import com.echcherqaoui.orderflow.inventory.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.inventory.model.Item;
+import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Collections;
 import java.util.Map;
@@ -14,14 +17,19 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-class ItemRepositoryCustomImplIT extends AbstractIntegrationTest {
+@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@ActiveProfiles("test")
+class ItemRepositoryCustomImplIT implements WithPostgres {
 
     @Autowired
     private ItemRepositoryCustomImpl itemRepositoryCustom;
 
     @Autowired
     private ItemRepository itemRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Autowired
     private InventoryReservationRepository reservationRepository;
@@ -66,6 +74,10 @@ class ItemRepositoryCustomImplIT extends AbstractIntegrationTest {
 
         itemRepositoryCustom.incrementStockBatchByCounts(increments);
 
+        // Clear L1 cache to evict stale entities
+        entityManager.flush();
+        entityManager.clear();
+
         assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(15);
         assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(35);
     }
@@ -80,6 +92,10 @@ class ItemRepositoryCustomImplIT extends AbstractIntegrationTest {
         );
 
         itemRepositoryCustom.incrementStockBatchByCounts(increments);
+
+        // Clear L1 cache to evict stale entities
+        entityManager.flush();
+        entityManager.clear();
 
         assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(20);
         assertThat(itemRepository.existsById(nonExistentId)).isFalse();

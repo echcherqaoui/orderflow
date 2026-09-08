@@ -2,7 +2,6 @@ package com.echcherqaoui.orderflow.order.config;
 
 import com.echcherqaoui.orderflow.inventory.grpc.InventoryServiceGrpc;
 import com.echcherqaoui.orderflow.inventory.grpc.InventoryServiceGrpc.InventoryServiceBlockingStub;
-import org.jspecify.annotations.NonNull;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.grpc.client.GrpcChannelFactory;
@@ -16,7 +15,7 @@ import org.springframework.grpc.client.GrpcChannelFactory;
 public class GrpcClientConfig {
 
     @Bean
-    public InventoryServiceBlockingStub inventoryServiceBlockingStub(@NonNull GrpcChannelFactory channelFactory) {
+    public InventoryServiceBlockingStub inventoryServiceBlockingStub(@lombok.NonNull GrpcChannelFactory channelFactory) {
         return InventoryServiceGrpc.newBlockingStub(channelFactory.createChannel("inventory-service"));
     }
 }

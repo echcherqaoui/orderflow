@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.inventory.grpc;
 
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
-import com.echcherqaoui.orderflow.inventory.service.impl.ReservationServiceImpl;
+import com.echcherqaoui.orderflow.inventory.service.ReservationService;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +20,7 @@ import static io.grpc.Status.INVALID_ARGUMENT;
 @RequiredArgsConstructor
 public class InventoryGrpcService extends InventoryServiceGrpc.InventoryServiceImplBase {
 
-    private final ReservationServiceImpl reservationService;
+    private final ReservationService reservationService;
 
     @Override
     public void reserveInventory(@NonNull ReserveInventoryRequest request,

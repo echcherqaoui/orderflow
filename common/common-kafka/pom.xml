@@ -42,10 +42,10 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
-        <!-- Spring Kafka -->
+        <!-- Spring Kafka + autoconfigure -->
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
             <optional>true</optional>
         </dependency>
 
@@ -54,6 +54,20 @@
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <!-- Confluent Protobuf serializer -->
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-protobuf-serializer</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

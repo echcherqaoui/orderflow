@@ -30,8 +30,8 @@ public class ChargePaymentCommandHandler implements EventHandler<ChargePaymentCo
         return signatureService.verify(
               metadata.getSignature(),
               metadata.getMessageId(),
-              String.valueOf(metadata.getOccurredAt().getSeconds()),
               metadata.getCorrelationId(),
+              String.valueOf(metadata.getOccurredAt().getSeconds()),
               event.getUserId(),
               String.valueOf(event.getTotalPriceCents())
         );

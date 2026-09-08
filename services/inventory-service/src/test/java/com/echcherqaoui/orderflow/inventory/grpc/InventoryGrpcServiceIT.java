@@ -1,8 +1,8 @@
 package com.echcherqaoui.orderflow.inventory.grpc;
 
-import com.echcherqaoui.orderflow.inventory.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
-import com.echcherqaoui.orderflow.inventory.service.impl.ReservationServiceImpl;
+import com.echcherqaoui.orderflow.inventory.service.ReservationService;
+import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
@@ -28,10 +28,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
-class InventoryGrpcServiceIT extends AbstractIntegrationTest {
+class InventoryGrpcServiceIT implements WithPostgres {
 
     @MockitoBean
-    private ReservationServiceImpl reservationService;
+    private ReservationService reservationService;
 
     private ManagedChannel channel;
     private InventoryServiceGrpc.InventoryServiceBlockingStub blockingStub;
