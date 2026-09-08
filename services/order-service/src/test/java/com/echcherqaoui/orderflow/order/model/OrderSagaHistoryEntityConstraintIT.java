@@ -1,9 +1,9 @@
 package com.echcherqaoui.orderflow.order.model;
 
-import com.echcherqaoui.orderflow.order.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStep;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStepStatus;
 import com.echcherqaoui.orderflow.order.repository.OrderSagaHistoryRepository;
+import com.echcherqaoui.orderflow.order.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
@@ -18,6 +18,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Map;
 import java.util.UUID;
@@ -25,14 +26,14 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INVENTORY_RESERVED;
-import static com.echcherqaoui.orderflow.order.model.enums.SagaStepStatus.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class OrderSagaHistoryEntityConstraintIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class OrderSagaHistoryEntityConstraintIT implements WithPostgres {
 
     @Autowired
     private EntityManager entityManager;
@@ -44,7 +45,7 @@ class OrderSagaHistoryEntityConstraintIT extends AbstractIntegrationTest {
         return new OrderSagaHistory()
               .setOrderId(UUID.randomUUID())
               .setStep(INVENTORY_RESERVED)
-              .setStatus(SUCCEEDED)
+              .setStatus(SagaStepStatus.COMPLETED)
               .setTriggerEvent("INVENTORY_RESERVED_EVENT")
               .setTriggerEventId("evt-" + UUID.randomUUID())
               .setMetadata(Map.of("inventoryId", "inv-123", "quantity", 2));
@@ -97,7 +98,7 @@ class OrderSagaHistoryEntityConstraintIT extends AbstractIntegrationTest {
             assertThat(reloaded.getCreatedAt()).isNotNull();
             assertThat(reloaded.getOrderId()).isEqualTo(history.getOrderId());
             assertThat(reloaded.getStep()).isEqualTo(INVENTORY_RESERVED);
-            assertThat(reloaded.getStatus()).isEqualTo(SUCCEEDED);
+            assertThat(reloaded.getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
             assertThat(reloaded.getTriggerEvent()).isEqualTo(history.getTriggerEvent());
             assertThat(reloaded.getTriggerEventId()).isEqualTo(history.getTriggerEventId());
             assertThat(reloaded.getMetadata())

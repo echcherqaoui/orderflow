@@ -4,20 +4,33 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
+@ExtendWith(MockitoExtension.class)
 class SseEmitterRegistryTest {
 
     private SseEmitterRegistry sseEmitterRegistry;
 
     private final UUID orderId = UUID.randomUUID();
+
+    @Mock
+    private SseEmitter mockEmitter;
 
     @BeforeEach
     void setUp() {
@@ -68,6 +81,80 @@ class SseEmitterRegistryTest {
 
             triggerError(emitter, new RuntimeException("Client disconnected"));
 
+            assertThat(getEmitters()).doesNotContainKey(orderId);
+        }
+    }
+
+    @Nested
+    @DisplayName("sendAndKeepOpen()")
+    class SendAndKeepOpen {
+
+        @Test
+        @DisplayName("does nothing when no emitter is registered for given orderId")
+        void sendAndKeepOpen_nonExistentOrderId_doesNothing() {
+            assertThatCode(() -> sseEmitterRegistry.sendAndKeepOpen(orderId, "payload"))
+                  .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("sends event and retains emitter in registry on success")
+        void sendAndKeepOpen_success_sendsEventAndKeepsEmitter() throws Exception {
+            getEmitters().put(orderId, mockEmitter);
+
+            sseEmitterRegistry.sendAndKeepOpen(orderId, "payload");
+
+            verify(mockEmitter).send(any(SseEmitter.SseEventBuilder.class));
+            assertThat(getEmitters()).containsKey(orderId);
+        }
+
+        @Test
+        @DisplayName("removes emitter and completes with error when send fails with IOException")
+        void sendAndKeepOpen_ioException_removesEmitterAndCompletesWithError() throws Exception {
+            getEmitters().put(orderId, mockEmitter);
+            IOException ioException = new IOException("Connection reset by peer");
+            doThrow(ioException).when(mockEmitter).send(any(SseEmitter.SseEventBuilder.class));
+
+            sseEmitterRegistry.sendAndKeepOpen(orderId, "payload");
+
+            verify(mockEmitter).completeWithError(ioException);
+            assertThat(getEmitters()).doesNotContainKey(orderId);
+        }
+    }
+
+    @Nested
+    @DisplayName("sendAndComplete()")
+    class SendAndComplete {
+
+        @Test
+        @DisplayName("does nothing when no emitter is registered for given orderId")
+        void sendAndComplete_nonExistentOrderId_doesNothing() {
+            assertThatCode(() -> sseEmitterRegistry.sendAndComplete(orderId, "payload"))
+                  .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("sends event, completes emitter, and removes emitter from registry on success")
+        void sendAndComplete_success_sendsEventCompletesAndRemovesEmitter() throws Exception {
+            getEmitters().put(orderId, mockEmitter);
+
+            sseEmitterRegistry.sendAndComplete(orderId, "payload");
+
+            verify(mockEmitter).send(any(SseEmitter.SseEventBuilder.class));
+            verify(mockEmitter).complete();
+            assertThat(getEmitters()).doesNotContainKey(orderId);
+        }
+
+        @Test
+        @DisplayName("removes emitter and completes with error when send fails with IOException")
+        void sendAndComplete_ioException_removesEmitterAndCompletesWithError() throws Exception {
+            getEmitters().put(orderId, mockEmitter);
+            IOException ioException = new IOException("Broken pipe");
+            doThrow(ioException).when(mockEmitter).send(any(SseEmitter.SseEventBuilder.class));
+
+            sseEmitterRegistry.sendAndComplete(orderId, "payload");
+
+            verify(mockEmitter).completeWithError(ioException);
+            verify(mockEmitter, never()).complete();
             assertThat(getEmitters()).doesNotContainKey(orderId);
         }
     }

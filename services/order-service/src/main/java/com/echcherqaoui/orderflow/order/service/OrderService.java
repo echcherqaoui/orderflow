@@ -6,7 +6,6 @@ import com.echcherqaoui.orderflow.order.exception.domain.CartAlreadyProcessedExc
 import com.echcherqaoui.orderflow.order.repository.OrderRepository;
 import com.echcherqaoui.orderflow.order.sse.SseEmitterRegistry;
 import lombok.RequiredArgsConstructor;
-import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -22,10 +21,10 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final InventoryServiceClient inventoryServiceClient;
-    private final OrderPersistenceService orderPersistenceService;
+    private final OrderSagaService orderSagaService;
     private final SseEmitterRegistry emitterRegistry;
 
-    public SseEmitter createOrder(@NonNull CreateOrderRequest request) {
+    public SseEmitter createOrder(@lombok.NonNull CreateOrderRequest request) {
         if (orderRepository.existsByCartId(request.cartId()))
             throw new CartAlreadyProcessedException(request.cartId());
 
@@ -36,7 +35,7 @@ public class OrderService {
         SseEmitter emitter = emitterRegistry.register(orderId);
 
         try {
-            orderPersistenceService.persistReservedOrder(orderId, request, reservation);
+            orderSagaService.handleOrderReserved(orderId, request, reservation);
             return emitter;
         } catch (Exception e) {
             emitterRegistry.remove(orderId);

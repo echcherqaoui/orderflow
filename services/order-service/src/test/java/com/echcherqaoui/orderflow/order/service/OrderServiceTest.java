@@ -40,7 +40,7 @@ class OrderServiceTest {
     private InventoryServiceClient inventoryServiceClient;
 
     @Mock
-    private OrderPersistenceService orderPersistenceService;
+    private OrderSagaService orderSagaService;
 
     @Mock
     private SseEmitterRegistry emitterRegistry;
@@ -86,7 +86,7 @@ class OrderServiceTest {
                   .isInstanceOf(CartAlreadyProcessedException.class);
 
             then(orderRepository).should().existsByCartId(cartId);
-            verifyNoInteractions(inventoryServiceClient, emitterRegistry, orderPersistenceService);
+            verifyNoInteractions(inventoryServiceClient, emitterRegistry, orderSagaService);
         }
 
         @Test
@@ -102,35 +102,35 @@ class OrderServiceTest {
 
             then(orderRepository).should().existsByCartId(cartId);
             then(inventoryServiceClient).should().reserveInventory(cartId, itemIds);
-            verifyNoInteractions(emitterRegistry, orderPersistenceService);
+            verifyNoInteractions(emitterRegistry, orderSagaService);
         }
 
         @Test
-        @DisplayName("persistence failure cleans up SSE emitter and rethrows exception")
-        void createOrder_persistenceFails_cleansUpSseEmitterAndRethrows() {
-            RuntimeException persistenceException = new RuntimeException("Database error");
+        @DisplayName("saga handler failure cleans up SSE emitter and rethrows exception")
+        void createOrder_sagaHandlerFails_cleansUpSseEmitterAndRethrows() {
+            RuntimeException sagaException = new RuntimeException("Saga handling error");
 
             given(orderRepository.existsByCartId(cartId)).willReturn(false);
             given(inventoryServiceClient.reserveInventory(cartId, itemIds)).willReturn(reservationResult);
             given(emitterRegistry.register(any(UUID.class))).willReturn(mockSseEmitter);
-            willThrow(persistenceException)
-                  .given(orderPersistenceService)
-                  .persistReservedOrder(any(UUID.class), eq(request), eq(reservationResult));
+            willThrow(sagaException)
+                  .given(orderSagaService)
+                  .handleOrderReserved(any(UUID.class), eq(request), eq(reservationResult));
 
             assertThatThrownBy(() -> orderService.createOrder(request))
-                  .isSameAs(persistenceException);
+                  .isSameAs(sagaException);
 
             then(emitterRegistry).should().register(orderIdCaptor.capture());
             UUID generatedOrderId = orderIdCaptor.getValue();
 
-            then(orderPersistenceService).should().persistReservedOrder(generatedOrderId, request, reservationResult);
+            then(orderSagaService).should().handleOrderReserved(generatedOrderId, request, reservationResult);
             then(emitterRegistry).should().remove(generatedOrderId);
-            then(mockSseEmitter).should().completeWithError(persistenceException);
+            then(mockSseEmitter).should().completeWithError(sagaException);
         }
 
         @Test
-        @DisplayName("successful order creation registers SSE emitter, persists order, and returns emitter")
-        void createOrder_success_registersSsePersistsOrderAndReturnsEmitter() {
+        @DisplayName("successful order creation registers SSE emitter, handles saga reserved state, and returns emitter")
+        void createOrder_success_registersSseHandlesSagaAndReturnsEmitter() {
             given(orderRepository.existsByCartId(cartId)).willReturn(false);
             given(inventoryServiceClient.reserveInventory(cartId, itemIds)).willReturn(reservationResult);
             given(emitterRegistry.register(any(UUID.class))).willReturn(mockSseEmitter);
@@ -146,7 +146,7 @@ class OrderServiceTest {
             UUID generatedOrderId = orderIdCaptor.getValue();
             assertThat(generatedOrderId).isNotNull();
 
-            then(orderPersistenceService).should().persistReservedOrder(generatedOrderId, request, reservationResult);
+            then(orderSagaService).should().handleOrderReserved(generatedOrderId, request, reservationResult);
             then(emitterRegistry).should(never()).remove(any());
             then(mockSseEmitter).should(never()).completeWithError(any());
         }
