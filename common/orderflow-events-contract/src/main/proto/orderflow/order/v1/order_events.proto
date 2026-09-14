@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package orderflow.order.v1;
+
+option java_package = "com.echcherqaoui.orderflow.contracts.order.v1";
+option java_multiple_files = true;
+
+import "orderflow/common/v1/metadata.proto";
+
+message OrderCancelledIntegrationEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string reason = 3;
+}
