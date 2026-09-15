@@ -1,8 +1,8 @@
-package com.echcherqaoui.orderflow.order.messaging.handler.payment;
+package com.echcherqaoui.orderflow.payment.messaging.handler;
 
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
-import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
-import com.echcherqaoui.orderflow.order.service.OrderSagaService;
+import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
+import com.echcherqaoui.orderflow.payment.service.PaymentService;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Timestamp;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,26 +21,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
-class PaymentInitiatedEventHandlerTest {
+class CancelPaymentCommandHandlerTest {
 
     @Mock
-    private OrderSagaService orderSagaService;
+    private PaymentService paymentService;
 
     @Mock
     private SignatureService signatureService;
 
     @InjectMocks
-    private PaymentInitiatedEventHandler eventHandler;
+    private CancelPaymentCommandHandler commandHandler;
 
     private final UUID orderId = UUID.randomUUID();
-    private final String paymentIntentId = "pi_123456789";
+    private final String paymentIntentId = "pi_stripe_12345";
+    private final String reason = "Customer requested cancellation";
     private final String messageId = "msg-" + UUID.randomUUID();
     private final String signature = "sig-abc-123";
     private final Instant now = Instant.now();
 
-    private PaymentInitiatedEvent event;
+    private CancelPaymentCommand command;
 
     @BeforeEach
     void setUp() {
@@ -51,9 +53,11 @@ class PaymentInitiatedEventHandlerTest {
               .setOccurredAt(Timestamp.newBuilder().setSeconds(now.getEpochSecond()).build())
               .build();
 
-        event = PaymentInitiatedEvent.newBuilder()
+        command = CancelPaymentCommand.newBuilder()
               .setMetadata(metadata)
+              .setOrderId(orderId.toString())
               .setPaymentIntentId(paymentIntentId)
+              .setReason(reason)
               .build();
     }
 
@@ -64,8 +68,8 @@ class PaymentInitiatedEventHandlerTest {
         @Test
         @DisplayName("returns correct protobuf descriptor full name")
         void getDescriptorFullName_returnsExpectedDescriptor() {
-            String descriptor = eventHandler.getDescriptorFullName();
-            assertThat(descriptor).isEqualTo(PaymentInitiatedEvent.getDescriptor().getFullName());
+            String descriptor = commandHandler.getDescriptorFullName();
+            assertThat(descriptor).isEqualTo(CancelPaymentCommand.getDescriptor().getFullName());
         }
     }
 
@@ -74,17 +78,18 @@ class PaymentInitiatedEventHandlerTest {
     class IsSignatureValid {
 
         @Test
-        @DisplayName("valid signature delegates to signature service with correct parameter order and returns true")
+        @DisplayName("valid signature delegates to signature service and returns true")
         void isSignatureValid_validSignature_returnsTrue() {
             given(signatureService.verify(
                   signature,
                   messageId,
                   orderId.toString(),
                   String.valueOf(now.getEpochSecond()),
-                  paymentIntentId
+                  paymentIntentId,
+                  reason
             )).willReturn(true);
 
-            boolean isValid = eventHandler.isSignatureValid(event, signatureService);
+            boolean isValid = commandHandler.isSignatureValid(command, signatureService);
 
             assertThat(isValid).isTrue();
             then(signatureService).should().verify(
@@ -92,7 +97,8 @@ class PaymentInitiatedEventHandlerTest {
                   messageId,
                   orderId.toString(),
                   String.valueOf(now.getEpochSecond()),
-                  paymentIntentId
+                  paymentIntentId,
+                  reason
             );
         }
 
@@ -104,26 +110,13 @@ class PaymentInitiatedEventHandlerTest {
                   messageId,
                   orderId.toString(),
                   String.valueOf(now.getEpochSecond()),
-                  paymentIntentId
+                  paymentIntentId,
+                  reason
             )).willReturn(false);
 
-            boolean isValid = eventHandler.isSignatureValid(event, signatureService);
+            boolean isValid = commandHandler.isSignatureValid(command, signatureService);
 
             assertThat(isValid).isFalse();
-        }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void isSignatureValid_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> eventHandler.isSignatureValid(null, signatureService))
-                  .isInstanceOf(NullPointerException.class);
-        }
-
-        @Test
-        @DisplayName("null signatureService throws NullPointerException")
-        void isSignatureValid_nullSignatureService_throwsNullPointerException() {
-            assertThatThrownBy(() -> eventHandler.isSignatureValid(event, null))
-                  .isInstanceOf(NullPointerException.class);
         }
     }
 
@@ -132,22 +125,32 @@ class PaymentInitiatedEventHandlerTest {
     class Handle {
 
         @Test
-        @DisplayName("successful execution delegates to order saga service")
-        void handle_success_delegatesToOrderSagaService() {
-            eventHandler.handle(event);
+        @DisplayName("successful execution parses order id and delegates to payment service")
+        void handle_success_delegatesToPaymentService() {
+            commandHandler.handle(command);
 
-            then(orderSagaService).should().handlePaymentInitiated(
+            then(paymentService).should().cancelPayment(
                   orderId,
                   paymentIntentId,
+                  reason,
                   messageId
             );
         }
 
         @Test
-        @DisplayName("null event throws NullPointerException")
-        void handle_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> eventHandler.handle(null))
-                  .isInstanceOf(NullPointerException.class);
+        @DisplayName("malformed order id throws IllegalArgumentException and aborts processing")
+        void handle_invalidOrderId_throwsIllegalArgumentException() {
+            CancelPaymentCommand invalidCommand = CancelPaymentCommand.newBuilder()
+                  .setMetadata(command.getMetadata())
+                  .setOrderId("not-a-valid-uuid")
+                  .setPaymentIntentId(paymentIntentId)
+                  .setReason(reason)
+                  .build();
+
+            assertThatThrownBy(() -> commandHandler.handle(invalidCommand))
+                  .isInstanceOf(IllegalArgumentException.class);
+
+            verifyNoInteractions(paymentService);
         }
     }
 }

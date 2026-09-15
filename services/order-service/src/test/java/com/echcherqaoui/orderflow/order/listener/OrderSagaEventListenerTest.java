@@ -7,6 +7,7 @@ import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.sse.SseEmitterRegistry;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,84 +32,144 @@ class OrderSagaEventListenerTest {
 
     private final UUID orderId = UUID.randomUUID();
 
-    @Test
-    @DisplayName("handlePaymentFailed sends PAYMENT_FAILED and keeps emitter open")
-    void handlePaymentFailed_sendsPaymentFailedStatus() {
-        OrderPaymentFailedEvent event = new OrderPaymentFailedEvent(orderId, "CARD_DECLINED");
+    @Nested
+    @DisplayName("handlePaymentFailed()")
+    class HandlePaymentFailed {
 
-        listener.handlePaymentFailed(event);
+        @Test
+        @DisplayName("sends PAYMENT_FAILED status and completes emitter")
+        void handlePaymentFailed_sendsPaymentFailedStatusAndCompletes() {
+            OrderPaymentFailedEvent event = new OrderPaymentFailedEvent(orderId, "CARD_DECLINED");
 
-        then(emitterRegistry).should().sendAndKeepOpen(
-              orderId,
-              Map.of(
-                    "status", "PAYMENT_FAILED",
-                    "reason", "CARD_DECLINED"
-              )
-        );
+            listener.handlePaymentFailed(event);
+
+            then(emitterRegistry).should().sendAndComplete(
+                  orderId,
+                  Map.of(
+                        "status", "PAYMENT_FAILED",
+                        "reason", "CARD_DECLINED"
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handlePaymentFailed_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handlePaymentFailed(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
     }
 
-    @Test
-    @DisplayName("handlePaymentSessionActive sends PAYMENT_READY and keeps emitter open")
-    void handlePaymentSessionActive_sendsPaymentReadyStatus() {
-        OrderPaymentSessionActiveEvent event = new OrderPaymentSessionActiveEvent(orderId, "pi_123456");
+    @Nested
+    @DisplayName("handlePaymentSessionActive()")
+    class HandlePaymentSessionActive {
 
-        listener.handlePaymentSessionActive(event);
+        @Test
+        @DisplayName("sends PAYMENT_READY status and keeps emitter open")
+        void handlePaymentSessionActive_sendsPaymentReadyStatusAndKeepsOpen() {
+            OrderPaymentSessionActiveEvent event = new OrderPaymentSessionActiveEvent(orderId, "pi_123456");
 
-        then(emitterRegistry).should().sendAndKeepOpen(
-              orderId,
-              Map.of(
-                    "status", "PAYMENT_READY",
-                    "paymentIntentId", "pi_123456"
-              )
-        );
+            listener.handlePaymentSessionActive(event);
+
+            then(emitterRegistry).should().sendAndKeepOpen(
+                  orderId,
+                  Map.of(
+                        "status", "PAYMENT_READY",
+                        "paymentIntentId", "pi_123456"
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handlePaymentSessionActive_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handlePaymentSessionActive(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
     }
 
-    @Test
-    @DisplayName("handleOrderCancelled sends ORDER_CANCELLED and completes emitter")
-    void handleOrderCancelled_sendsOrderCancelledStatusAndCompletes() {
-        OrderCancelledEvent event = new OrderCancelledEvent(orderId, "TIMEOUT");
+    @Nested
+    @DisplayName("handleOrderCancelled(OrderCancelledEvent)")
+    class HandleOrderCancelledEvent {
 
-        listener.handleOrderCancelled(event);
+        @Test
+        @DisplayName("sends ORDER_CANCELLED status and completes emitter")
+        void handleOrderCancelled_sendsOrderCancelledStatusAndCompletes() {
+            OrderCancelledEvent event = new OrderCancelledEvent(orderId, "TIMEOUT");
 
-        then(emitterRegistry).should().sendAndComplete(
-              orderId,
-              Map.of(
-                    "status", "ORDER_CANCELLED",
-                    "reason", "TIMEOUT"
-              )
-        );
+            listener.handleOrderCancelled(event);
+
+            then(emitterRegistry).should().sendAndComplete(
+                  orderId,
+                  Map.of(
+                        "status", "ORDER_CANCELLED",
+                        "reason", "TIMEOUT"
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handleOrderCancelled_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handleOrderCancelled((OrderCancelledEvent) null))
+                  .isInstanceOf(NullPointerException.class);
+        }
     }
 
-    @Test
-    @DisplayName("handleReservationExtensionFailed sends ORDER_CANCELLED and keeps emitter open")
-    void handleReservationExtensionFailed_sendsOrderCancelledStatus() {
-        ReservationExtensionFailedOrderEvent event = new ReservationExtensionFailedOrderEvent(orderId, "STOCK_EXHAUSTED");
+    @Nested
+    @DisplayName("handleOrderCancelled(ReservationExtensionFailedOrderEvent)")
+    class HandleReservationExtensionFailedEvent {
 
-        listener.handleOrderCancelled(event);
+        @Test
+        @DisplayName("sends ORDER_CANCELLED status and completes emitter")
+        void handleReservationExtensionFailed_sendsOrderCancelledStatusAndCompletes() {
+            ReservationExtensionFailedOrderEvent event = new ReservationExtensionFailedOrderEvent(orderId, "STOCK_EXHAUSTED");
 
-        then(emitterRegistry).should().sendAndKeepOpen(
-              orderId,
-              Map.of(
-                    "status", "ORDER_CANCELLED",
-                    "reason", "STOCK_EXHAUSTED"
-              )
-        );
+            listener.handleOrderCancelled(event);
+
+            then(emitterRegistry).should().sendAndComplete(
+                  orderId,
+                  Map.of(
+                        "status", "ORDER_CANCELLED",
+                        "reason", "STOCK_EXHAUSTED"
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handleReservationExtensionFailed_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handleOrderCancelled((ReservationExtensionFailedOrderEvent) null))
+                  .isInstanceOf(NullPointerException.class);
+        }
     }
 
-    @Test
-    @DisplayName("handleReservationExtended sends PAYMENT_SESSION_ACTIVE with epoch seconds")
-    void handleReservationExtended_sendsPaymentSessionActiveStatus() {
-        Instant expiresAt = Instant.ofEpochSecond(1700000000L);
-        ReservationExtendedOrderEvent event = new ReservationExtendedOrderEvent(orderId, expiresAt);
+    @Nested
+    @DisplayName("handleReservationExtended()")
+    class HandleReservationExtended {
 
-        listener.handleReservationExtended(event);
+        @Test
+        @DisplayName("sends PAYMENT_SESSION_ACTIVE status and keeps emitter open")
+        void handleReservationExtended_sendsPaymentSessionActiveStatusAndKeepsOpen() {
+            Instant expiresAt = Instant.ofEpochSecond(1700000000L);
+            ReservationExtendedOrderEvent event = new ReservationExtendedOrderEvent(orderId, expiresAt);
 
-        then(emitterRegistry).should().sendAndKeepOpen(
-              orderId,
-              Map.of(
-                    "status", "PAYMENT_SESSION_ACTIVE",
-                    "expiresAt", 1700000000L
-              )
-        );
+            listener.handleReservationExtended(event);
+
+            then(emitterRegistry).should().sendAndKeepOpen(
+                  orderId,
+                  Map.of(
+                        "status", "PAYMENT_SESSION_ACTIVE",
+                        "expiresAt", 1700000000L
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handleReservationExtended_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handleReservationExtended(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
     }
 }

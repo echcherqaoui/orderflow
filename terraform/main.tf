@@ -131,6 +131,41 @@ resource "kafka_topic" "orderflow_inventory_events_dlt" {
   }
 }
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ORDER SERVICE TOPICS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# --- Order events & DLT ---
+
+resource "kafka_topic" "orderflow_order_events" {
+  name               = "orderflow.order.events"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_order_events_dlt" {
+  name               = "orderflow.order.events.dlt"
+  replication_factor = 1
+  partitions         = 1 # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DEBEZIUM CDC HEARTBEAT TOPIC
 # ─────────────────────────────────────────────────────────────────────────────

@@ -13,5 +13,11 @@ public interface PaymentGateway {
     )
     CreatePaymentIntentResponse createIntent(String idempotencyKey, long totalAmountCents);
 
+    @Retryable(
+          includes = PaymentGatewayTransientException.class,
+          maxRetries = 2,
+          delay = 200,
+          multiplier = 2.0
+    )
     void cancelIntent(String paymentIntentId);
 }

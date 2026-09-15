@@ -57,9 +57,9 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 
 | Service | REST Port | gRPC Port | Database | Primary Responsibilities |
 | :--- |:----------|:----------| :--- | :--- |
-| **Inventory Service** | `8082`    | `9082`    | `inventory_db` | Item catalog management, pessimistic stock reservation engine, reservation extension & release lifecycle, background stock sweeper, gRPC endpoints |
-| **Order Service** | `8084`    | `----` | `order_db` | Order orchestration, end-to-end Saga state machine, gRPC inventory calls, transactional outbox writer, SSE real-time client updates |
-| **Payment Service** | `8086`    | `----`    | `payment_db` | Payment intent initialization, async payment charges, third-party gateway abstraction, atomic outbox event publishing |
+| **Inventory Service** | `8082` | `9082` | `inventory_db` | Item catalog management, pessimistic stock reservation engine, reservation extension & release lifecycle, background stock sweeper, gRPC endpoints |
+| **Order Service** | `8084` | `----` | `order_db` | Order orchestration, end-to-end Saga state machine, gRPC inventory calls, Protobuf event handlers with HMAC signature verification, transactional outbox writer, SSE real-time client state streaming |
+| **Payment Service** | `8086` | `----` | `payment_db` | Payment intent creation, async payment charges, third-party gateway abstraction, HMAC signature generation in `MessageMetadata`, atomic outbox event publishing |
 | **Entitlement Service** | `----`    | `----`    | `entitlement_db` |  |
 
 ---
@@ -96,13 +96,15 @@ Acts as the distributed Saga Orchestrator:
 * **Saga State Machine:** Manages multi-step checkout state transitions with detailed audit step logging (`SagaStepLogger`, `SagaStepStatus`).
 * **Kafka Event Consumers:** Listens to downstream domain events (`InventoryEventsConsumer`, `PaymentEventsConsumer`) and dispatches compensating commands (`InventoryReleasedEventHandler`, `PaymentInitializationFailedEventHandler`).
 * **Transactional Outbox Writer:** Guarantees atomic persistence of domain events into the `outbox` table alongside order status updates. Captured and routed asynchronously by Debezium CDC.
-* **Real-time Client Feeds:** Pushes asynchronous saga updates directly to frontend clients via reactive Server-Sent Events (`SseEmitterRegistry`).
+* **Real-time SSE Event Dispatcher:** Listens to transactional domain events (`OrderSagaEventListener`) and streams live saga updates to clients via `SseEmitterRegistry`:
+    * `PAYMENT_READY` / `PAYMENT_SESSION_ACTIVE` — Keeps connection open for checkout continuation.
+    * `PAYMENT_FAILED` / `ORDER_CANCELLED` — Dispatches terminal failure updates and completes the emitter session.
 
 ### Payment Service
 Acts as the single source of truth for payment lifecycle processing:
-* **Intent Execution & Gateway Abstraction:** Processes payment intent creation and async charge commands (`ChargePaymentCommandHandler`) via provider interfaces (`PaymentGateway`, `MockPaymentGateway`).
+* **Intent Execution & Gateway Abstraction:** Processes payment intent creation (`paymentIntentId`) and async charge commands (`ChargePaymentCommandHandler`) via provider interfaces (`PaymentGateway`, `MockPaymentGateway`).
 * **Payload Integrity & Verification:** Validates webhook signatures using HMAC verification (`HmacSignatureService`).
-* **Resilient Messaging:** Leverages dedicated Kafka retry topics and dead-letter queues (`KafkaRetryConfig`) to gracefully recover from transient payment gateway failures.
+* **Outbox & Resilient Messaging:** Emits `PaymentInitiatedEvent` and payment outcome events atomically using the Transactional Outbox pattern, supported by dedicated Kafka retry topics and dead-letter queues (`KafkaRetryConfig`).
 
 ---
 

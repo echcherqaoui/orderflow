@@ -10,8 +10,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.kafka.support.serializer.DeserializationException;
-import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.util.backoff.ExponentialBackOff;
 
 @AutoConfiguration
@@ -31,10 +29,8 @@ public class KafkaRetryConfig {
 
         handler.addNotRetryableExceptions(
               DataIntegrityViolationException.class,
-              DeserializationException.class,
               EventProcessingException.class,
-              EventSecurityException.class,
-              MessageConversionException.class
+              EventSecurityException.class
         );
 
         handler.setLogLevel(KafkaException.Level.ERROR);

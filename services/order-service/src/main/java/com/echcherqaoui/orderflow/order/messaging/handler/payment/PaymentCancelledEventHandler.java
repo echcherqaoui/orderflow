@@ -1,30 +1,29 @@
-package com.echcherqaoui.orderflow.payment.messaging.handler;
+package com.echcherqaoui.orderflow.order.messaging.handler.payment;
 
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
-import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
 import com.echcherqaoui.orderflow.kafka.EventHandler;
-import com.echcherqaoui.orderflow.payment.service.PaymentService;
+import com.echcherqaoui.orderflow.order.service.OrderSagaService;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import lombok.RequiredArgsConstructor;
-import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-public class ChargePaymentCommandHandler implements EventHandler<ChargePaymentCommand> {
+public class PaymentCancelledEventHandler implements EventHandler<PaymentCancelledEvent> {
 
-    private final PaymentService paymentService;
+    private final OrderSagaService orderSagaService;
 
     @Override
     public String getDescriptorFullName() {
-        return ChargePaymentCommand.getDescriptor().getFullName();
+        return PaymentCancelledEvent.getDescriptor().getFullName();
     }
 
     @Override
-    public boolean isSignatureValid(@NonNull ChargePaymentCommand event,
-                                    @NonNull SignatureService signatureService) {
+    public boolean isSignatureValid(@lombok.NonNull PaymentCancelledEvent event,
+                                    @lombok.NonNull SignatureService signatureService) {
         MessageMetadata metadata = event.getMetadata();
 
         return signatureService.verify(
@@ -32,19 +31,18 @@ public class ChargePaymentCommandHandler implements EventHandler<ChargePaymentCo
               metadata.getMessageId(),
               metadata.getCorrelationId(),
               String.valueOf(metadata.getOccurredAt().getSeconds()),
-              event.getUserId(),
-              String.valueOf(event.getTotalPriceCents())
+              event.getPaymentIntentId(),
+              event.getReason()
         );
     }
 
     @Override
-    public void handle(@NonNull ChargePaymentCommand event) {
+    public void handle(@lombok.NonNull PaymentCancelledEvent event) {
         UUID orderId = UUID.fromString(event.getMetadata().getCorrelationId());
 
-        paymentService.initializePayment(
+        orderSagaService.handlePaymentCancelled(
               orderId,
-              event.getUserId(),
-              event.getTotalPriceCents(),
+              event.getPaymentIntentId(),
               event.getMetadata().getMessageId()
         );
     }

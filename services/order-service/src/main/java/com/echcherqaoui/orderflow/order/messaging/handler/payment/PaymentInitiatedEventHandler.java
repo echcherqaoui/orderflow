@@ -30,8 +30,8 @@ public class PaymentInitiatedEventHandler implements EventHandler<PaymentInitiat
               metadata.getSignature(),
               metadata.getMessageId(),
               metadata.getCorrelationId(),
-              event.getPaymentIntentId(),
-              String.valueOf(metadata.getOccurredAt().getSeconds())
+              String.valueOf(metadata.getOccurredAt().getSeconds()),
+              event.getPaymentIntentId()
         );
     }
 

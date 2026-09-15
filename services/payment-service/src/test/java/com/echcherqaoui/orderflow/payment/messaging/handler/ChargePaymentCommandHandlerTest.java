@@ -2,7 +2,7 @@ package com.echcherqaoui.orderflow.payment.messaging.handler;
 
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
-import com.echcherqaoui.orderflow.payment.service.PaymentInitializationService;
+import com.echcherqaoui.orderflow.payment.service.PaymentService;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Timestamp;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class ChargePaymentCommandHandlerTest {
 
     @Mock
-    private PaymentInitializationService paymentInitializationService;
+    private PaymentService paymentService;
 
     @Mock
     private SignatureService signatureService;
@@ -82,8 +82,8 @@ class ChargePaymentCommandHandlerTest {
             given(signatureService.verify(
                   signature,
                   messageId,
-                  String.valueOf(now.getEpochSecond()),
                   orderId.toString(),
+                  String.valueOf(now.getEpochSecond()),
                   userId,
                   String.valueOf(totalPriceCents)
             )).willReturn(true);
@@ -94,8 +94,8 @@ class ChargePaymentCommandHandlerTest {
             then(signatureService).should().verify(
                   signature,
                   messageId,
-                  String.valueOf(now.getEpochSecond()),
                   orderId.toString(),
+                  String.valueOf(now.getEpochSecond()),
                   userId,
                   String.valueOf(totalPriceCents)
             );
@@ -107,8 +107,8 @@ class ChargePaymentCommandHandlerTest {
             given(signatureService.verify(
                   signature,
                   messageId,
-                  String.valueOf(now.getEpochSecond()),
                   orderId.toString(),
+                  String.valueOf(now.getEpochSecond()),
                   userId,
                   String.valueOf(totalPriceCents)
             )).willReturn(false);
@@ -128,7 +128,7 @@ class ChargePaymentCommandHandlerTest {
         void handle_success_delegatesToInitializationService() {
             commandHandler.handle(command);
 
-            then(paymentInitializationService).should().initializePayment(
+            then(paymentService).should().initializePayment(
                   orderId,
                   userId,
                   totalPriceCents,
@@ -154,7 +154,7 @@ class ChargePaymentCommandHandlerTest {
             assertThatThrownBy(() -> commandHandler.handle(invalidCommand))
                   .isInstanceOf(IllegalArgumentException.class);
 
-            verifyNoInteractions(paymentInitializationService);
+            verifyNoInteractions(paymentService);
         }
     }
 }

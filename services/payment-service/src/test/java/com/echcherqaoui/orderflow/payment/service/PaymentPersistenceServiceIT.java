@@ -2,20 +2,23 @@ package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
-import com.echcherqaoui.orderflow.payment.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
+import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
 import com.echcherqaoui.orderflow.payment.model.Payment;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
+import com.echcherqaoui.orderflow.payment.support.WithPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,10 +27,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willThrow;
 
 @SpringBootTest
-class PaymentTransactionalWriterIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class PaymentPersistenceServiceIT implements WithPostgres {
 
     @Autowired
-    private PaymentTransactionalWriter transactionalWriter;
+    private PaymentPersistenceService transactionalWriter;
 
     @Autowired
     private PaymentRepository paymentRepository;
@@ -46,6 +50,50 @@ class PaymentTransactionalWriterIT extends AbstractIntegrationTest {
     void setUp() {
         outboxEventRepository.deleteAll();
         paymentRepository.deleteAll();
+    }
+
+    @Nested
+    @DisplayName("existsByOrderId()")
+    class ExistsByOrderId {
+
+        @Test
+        @DisplayName("returns true when payment entity exists for given order ID")
+        void existsByOrderId_whenExists_returnsTrue() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            assertThat(transactionalWriter.existsByOrderId(orderId)).isTrue();
+        }
+
+        @Test
+        @DisplayName("returns false when payment entity does not exist for given order ID")
+        void existsByOrderId_whenDoesNotExist_returnsFalse() {
+            assertThat(transactionalWriter.existsByOrderId(orderId)).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("findByOrderId()")
+    class FindByOrderId {
+
+        @Test
+        @DisplayName("returns projection when payment entity exists for given order ID")
+        void findByOrderId_whenExists_returnsProjection() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            Optional<PaymentCancelProjection> projection = transactionalWriter.findByOrderId(orderId);
+
+            assertThat(projection).isPresent();
+            assertThat(projection.get().status()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(projection.get().paymentIntentId()).isEqualTo(pspResponse.paymentIntentId());
+        }
+
+        @Test
+        @DisplayName("returns empty optional when payment entity does not exist")
+        void findByOrderId_whenDoesNotExist_returnsEmptyOptional() {
+            Optional<PaymentCancelProjection> projection = transactionalWriter.findByOrderId(orderId);
+
+            assertThat(projection).isEmpty();
+        }
     }
 
     @Nested
@@ -158,6 +206,69 @@ class PaymentTransactionalWriterIT extends AbstractIntegrationTest {
             assertThat(paymentRepository.existsByOrderId(orderId)).isFalse();
             assertThat(paymentRepository.findAll()).isEmpty();
             assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("saveCancellationAndOutbox()")
+    class SaveCancellationAndOutbox {
+
+        private final String paymentIntentId = "pi_cancel_123";
+        private final String cancellationReason = "Customer requested order cancellation";
+
+        @Test
+        @DisplayName("atomic commit updates payment status to CANCELLED and persists outbox event")
+        void saveCancellationAndOutbox_success_persistsCancellationAndOutboxAtomically() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            outboxEventRepository.deleteAll();
+
+            transactionalWriter.saveCancellationAndOutbox(orderId, paymentIntentId, cancellationReason, triggerEventId);
+
+            List<Payment> payments = paymentRepository.findAll();
+            assertThat(payments).hasSize(1);
+
+            Payment payment = payments.getFirst();
+            assertThat(payment.getOrderId()).isEqualTo(orderId);
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(payment.getFailureReason()).isEqualTo(cancellationReason);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+
+            OutboxEvent outboxEvent = outboxEvents.getFirst();
+            assertThat(outboxEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(outboxEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(outboxEvent.getEventType()).isEqualTo("PaymentCancelledEvent");
+            assertThat(outboxEvent.getPayload()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("cancelling non-existent payment throws IllegalStateException and aborts outbox publication")
+        void saveCancellationAndOutbox_nonExistentPayment_throwsException() {
+            assertThatThrownBy(() ->
+                  transactionalWriter.saveCancellationAndOutbox(orderId, paymentIntentId, cancellationReason, triggerEventId)
+            ).isInstanceOf(IllegalStateException.class)
+                  .hasMessageContaining("Cannot cancel non-existent payment for orderId: " + orderId);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("outbox persistence failure rolls back payment cancellation status change")
+        void saveCancellationAndOutbox_outboxFailure_rollsBackEntireTransaction() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            willThrow(new RuntimeException("Outbox database persistence failure"))
+                  .given(outboxEventRepository)
+                  .save(any(OutboxEvent.class));
+
+            assertThatThrownBy(() ->
+                  transactionalWriter.saveCancellationAndOutbox(orderId, paymentIntentId, cancellationReason, triggerEventId)
+            ).isInstanceOf(RuntimeException.class)
+                  .hasMessage("Outbox database persistence failure");
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
         }
     }
 }

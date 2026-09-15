@@ -5,6 +5,7 @@ import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
@@ -29,6 +30,7 @@ public class OutboxWriter {
     private static final String TOPIC_PREFIX = "orderflow.";
     private static final String PAYMENT_COMMANDS_AGGREGATE = "payment.commands";
     private static final String INVENTORY_COMMANDS_AGGREGATE = "inventory.commands";
+    private static final String ORDER_EVENTS_AGGREGATE = "order.events";
     private static final int BASE_PARAM_COUNT = 3;
 
     private final OutboxEventRepository outboxEventRepository;
@@ -66,9 +68,8 @@ public class OutboxWriter {
         signatureParams[1] = orderIdStr;
         signatureParams[2] = String.valueOf(occurredAt.getSeconds());
 
-        if (extraLength > 0) {
+        if (extraLength > 0)
             System.arraycopy(extraSignatureParams, 0, signatureParams, BASE_PARAM_COUNT, extraLength);
-        }
 
         String signature = signatureService.sign(signatureParams);
 
@@ -157,5 +158,22 @@ public class OutboxWriter {
               .build();
 
         persist(command, orderIdStr, PAYMENT_COMMANDS_AGGREGATE);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishOrderCancelledEvent(@lombok.NonNull UUID orderId,
+                                           String triggerEventId,
+                                           @lombok.NonNull String reason) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, reason);
+
+        OrderCancelledIntegrationEvent event = OrderCancelledIntegrationEvent.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setReason(reason)
+              .build();
+
+            persist(event, orderIdStr, ORDER_EVENTS_AGGREGATE);
     }
 }

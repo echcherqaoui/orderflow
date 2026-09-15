@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.payment.messaging.outbox;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
@@ -17,7 +18,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.transaction.annotation.Propagation.MANDATORY;
@@ -26,25 +26,21 @@ import static org.springframework.transaction.annotation.Propagation.MANDATORY;
 @RequiredArgsConstructor
 public class OutboxWriter {
 
+    private static final String PAYMENT_EVENTS_TOPIC = "orderflow.payment.events";
+    private static final String AGGREGATE_TYPE = "payment.events";
+    private static final int BASE_PARAM_COUNT = 3;
+
     private final OutboxEventRepository outboxEventRepository;
-
     private final SignatureService signatureService;
-
     private final KafkaProtobufSerializer<Message> serializer;
 
-    private void persist(@NonNull Message message,
-                         String orderId,
-                         String aggregateType) {
-        Objects.requireNonNull(orderId, "orderId must not be null");
-
-        String topic = "orderflow." + aggregateType;
-
-        // Serializes payload + attaches 5-byte Confluent header (Magic byte + Schema ID)
-        byte[] payload = serializer.serialize(topic, message);
+    private void persist(@lombok.NonNull Message message,
+                         @lombok.NonNull String orderId) {
+        byte[] payload = serializer.serialize(PAYMENT_EVENTS_TOPIC, message);
 
         OutboxEvent event = new OutboxEvent()
               .setId(UUID.randomUUID())
-              .setAggregateType(aggregateType)
+              .setAggregateType(AGGREGATE_TYPE)
               .setAggregateId(orderId)
               .setEventType(message.getClass().getSimpleName())
               .setPayload(payload)
@@ -53,78 +49,99 @@ public class OutboxWriter {
         outboxEventRepository.save(event);
     }
 
-    @Transactional(propagation = MANDATORY)
-    public void publishPaymentInitiatedEvent(@NonNull UUID orderId,
-                                             String triggerEventId,
-                                             @NonNull CreatePaymentIntentResponse pspResponse) {
+    @NonNull
+    private MessageMetadata createMetadata(String orderIdStr,
+                                           String causationId,
+                                           String... extraSignatureParams) {
         String messageId = UUID.randomUUID().toString();
         Timestamp occurredAt = InstantConverter.toTimestamp(Instant.now());
-        String orderIdString = orderId.toString();
 
-        String signature = signatureService.sign(
-              messageId,
-              orderId.toString(),
-              pspResponse.paymentIntentId(),
-              String.valueOf(occurredAt.getSeconds())
+        int extraLength = (extraSignatureParams != null) ? extraSignatureParams.length : 0;
+        String[] signatureParams = new String[BASE_PARAM_COUNT + extraLength];
+
+        signatureParams[0] = messageId;
+        signatureParams[1] = orderIdStr;
+        signatureParams[2] = String.valueOf(occurredAt.getSeconds());
+
+        if (extraLength > 0)
+            System.arraycopy(extraSignatureParams, 0, signatureParams, BASE_PARAM_COUNT, extraLength);
+
+        String signature = signatureService.sign(signatureParams);
+
+        MessageMetadata.Builder builder = MessageMetadata.newBuilder()
+              .setMessageId(messageId)
+              .setCorrelationId(orderIdStr)
+              .setOccurredAt(occurredAt)
+              .setSignature(signature);
+
+        if (causationId != null)
+            builder.setCausationId(causationId);
+
+        return builder.build();
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishPaymentInitiatedEvent(@lombok.NonNull UUID orderId,
+                                             @lombok.NonNull CreatePaymentIntentResponse pspResponse,
+                                             String causationId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              causationId,
+              pspResponse.paymentIntentId()
         );
 
-        MessageMetadata messageMetadata = MessageMetadata.newBuilder()
-              .setMessageId(messageId)
-              .setCorrelationId(orderId.toString())
-              .setCausationId(triggerEventId)
-              .setOccurredAt(occurredAt)
-              .setSignature(signature)
-              .build();
-
         PaymentInitiatedEvent event = PaymentInitiatedEvent.newBuilder()
-              .setMetadata(messageMetadata)
+              .setMetadata(metadata)
               .setPaymentIntentId(pspResponse.paymentIntentId())
               .setClientSecret(pspResponse.clientSecret())
               .build();
 
-        // Persist using orderId as the partitioning/routing key for the outbox
-        persist(
-              event,
-              orderIdString,
-              "payment.events"
-        );
+        persist(event, orderIdStr);
     }
 
     @Transactional(propagation = MANDATORY)
-    public void publishPaymentInitializationFailedEvent(UUID orderId,
-                                                        String triggerEventId,
-                                                        String reason) {
-        Objects.requireNonNull(orderId, "orderId must not be null");
-        Objects.requireNonNull(reason, "reason must not be null");
+    public void publishPaymentInitializationFailedEvent(@lombok.NonNull UUID orderId,
+                                                        @lombok.NonNull String reason,
+                                                        String causationId) {
+        String orderIdStr = orderId.toString();
 
-        String messageId = UUID.randomUUID().toString();
-        Timestamp occurredAt = InstantConverter.toTimestamp(Instant.now());
-        String orderIdString = orderId.toString();
-
-        String signature = signatureService.sign(
-              messageId,
-              orderIdString,
-              reason,
-              String.valueOf(occurredAt.getSeconds())
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              causationId,
+              reason
         );
 
-        MessageMetadata messageMetadata = MessageMetadata.newBuilder()
-              .setMessageId(messageId)
-              .setCorrelationId(orderIdString)
-              .setCausationId(triggerEventId)
-              .setOccurredAt(occurredAt)
-              .setSignature(signature)
-              .build();
-
         PaymentInitializationFailedEvent event = PaymentInitializationFailedEvent.newBuilder()
-              .setMetadata(messageMetadata)
+              .setMetadata(metadata)
               .setReason(reason)
               .build();
 
-        persist(
-              event,
-              orderIdString,
-              "payment.events"
+        persist(event, orderIdStr);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishPaymentCancelledEvent(@lombok.NonNull UUID orderId,
+                                             @lombok.NonNull String paymentIntentId,
+                                             @lombok.NonNull String reason,
+                                             String causationId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              causationId,
+              paymentIntentId,
+              reason
         );
+
+        PaymentCancelledEvent paymentCancelledEvent = PaymentCancelledEvent.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setReason(reason)
+              .setPaymentIntentId(paymentIntentId)
+              .build();
+
+        persist(paymentCancelledEvent, orderIdStr);
     }
 }
