@@ -2,7 +2,6 @@ package com.echcherqaoui.orderflow.order.service;
 
 import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
-import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
@@ -25,10 +24,13 @@ import java.util.Map;
 import java.util.UUID;
 
 import static com.echcherqaoui.orderflow.order.exception.code.OrderErrorCode.ORDER_NOT_FOUND;
+import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.PAYMENT_FAILED;
+import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.RESERVATION_EXPIRED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.EXTENDING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INITIALIZING_PAYMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INVENTORY_RESERVED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.PAYMENT_SESSION_ACTIVE;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSING_PAYMENT;
 
@@ -42,6 +44,7 @@ public class OrderSagaService {
     private final OutboxWriter outboxWriter;
     private final ApplicationEventPublisher eventPublisher;
 
+    @lombok.NonNull
     private Order getOrder(UUID orderId) {
         return orderRepository.findById(orderId)
               .orElseThrow(() -> new ResourceNotFoundException(ORDER_NOT_FOUND, orderId));
@@ -107,7 +110,9 @@ public class OrderSagaService {
         if (isStaleOrDuplicate(order, INITIALIZING_PAYMENT, "PaymentInitializationFailedEvent")) return;
 
         order.setStatus(OrderStatus.CANCELLING)
+              .setCancellationReason(PAYMENT_FAILED)
               .setCurrentSagaStep(REVERSING_INVENTORY);
+
         orderRepository.save(order);
 
         sagaStepLogger.logTransition(
@@ -164,26 +169,23 @@ public class OrderSagaService {
               triggerEventId
         );
 
-        eventPublisher.publishEvent(
-              new OrderCancelledEvent(orderId, "Payment failed and inventory released")
-        );
+        // Outbox: Publish terminal OrderCancelledEvent for downstream analytics/audit
+        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
     }
 
     @Transactional
     public void handleReservationExtensionFailed(@lombok.NonNull UUID orderId,
                                                  String messageId,
                                                  @lombok.NonNull String cartId,
-                                                 String failureReason,
+                                                 @lombok.NonNull String reason,
                                                  @lombok.NonNull String triggerEventId) {
-
         Order order = getOrder(orderId);
         if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, "ReservationExtensionFailedEvent")) return;
 
         order.setStatus(OrderStatus.CANCELLING)
+              .setCancellationReason(RESERVATION_EXPIRED)
               .setCurrentSagaStep(REVERSING_PAYMENT);
         orderRepository.save(order);
-
-        String reason = failureReason != null ? failureReason : "TTL extension failed";
 
         sagaStepLogger.logTransition(
               orderId,
@@ -217,5 +219,32 @@ public class OrderSagaService {
         );
 
         eventPublisher.publishEvent(new ReservationExtendedOrderEvent(orderId, newExpiresAt));
+    }
+
+    @Transactional
+    public void handlePaymentCancelled(@lombok.NonNull UUID orderId,
+                                       String paymentIntentId,
+                                       @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+
+        // Guard: Enforce order is in CANCELLING status and REVERSING_PAYMENT step
+        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentCancelledEvent")) return;
+
+        // State Update: Finalize terminal cancelled state
+        order.setStatus(OrderStatus.CANCELLED)
+              .setCurrentSagaStep(REVERSED);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.completed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId != null ? paymentIntentId : "N/A")),
+              SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("reason", order.getCancellationReason().name())),
+              "PaymentCancelledEvent",
+              triggerEventId
+        );
+
+        // Outbox: Publish terminal OrderCancelledEvent for downstream analytics/audit
+        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
     }
 }

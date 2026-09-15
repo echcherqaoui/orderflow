@@ -9,9 +9,8 @@ package com.echcherqaoui.orderflow.order.model.enums;
 public enum CancellationReason {
     NONE,
     PAYMENT_FAILED,
-    OUT_OF_STOCK,
+    RESERVATION_EXPIRED,
     ENTITLEMENT_FAILED,
     REFUND_FAILED,
-    INVENTORY_RELEASE_FAILED,
     CRITICAL_DUAL_FAILURE
 }

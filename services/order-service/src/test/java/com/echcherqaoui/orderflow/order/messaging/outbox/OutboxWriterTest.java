@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
@@ -34,6 +35,7 @@ class OutboxWriterTest {
 
     private static final String PAYMENT_TOPIC = "orderflow.payment.commands";
     private static final String INVENTORY_TOPIC = "orderflow.inventory.commands";
+    private static final String ORDER_EVENTS_TOPIC = "orderflow.order.events";
 
     @Mock
     private OutboxEventRepository outboxEventRepository;
@@ -229,6 +231,16 @@ class OutboxWriterTest {
         }
 
         @Test
+        @DisplayName("null orderId throws NullPointerException")
+        void publishReleaseInventoryCommand_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishReleaseInventoryCommand(null, causationMessageId, cartId))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("orderId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
         @DisplayName("null cartId throws NullPointerException")
         void publishReleaseInventoryCommand_nullCartId_throwsNullPointerException() {
             assertThatThrownBy(() -> outboxWriter.publishReleaseInventoryCommand(orderId, causationMessageId, null))
@@ -277,6 +289,26 @@ class OutboxWriterTest {
             assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
             assertThat(savedEvent.getEventType()).isEqualTo("ExtendReservationCommand");
         }
+
+        @Test
+        @DisplayName("null orderId throws NullPointerException")
+        void publishExtendReservationCommand_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishExtendReservationCommand(null, causationMessageId, cartId))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("orderId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("null cartId throws NullPointerException")
+        void publishExtendReservationCommand_nullCartId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishExtendReservationCommand(orderId, causationMessageId, null))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("cartId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
     }
 
     @Nested
@@ -321,6 +353,16 @@ class OutboxWriterTest {
         }
 
         @Test
+        @DisplayName("null orderId throws NullPointerException")
+        void publishCancelPaymentCommand_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(null, causationMessageId, paymentIntentId, reason))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("orderId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
         @DisplayName("null paymentIntentId throws NullPointerException")
         void publishCancelPaymentCommand_nullPaymentIntentId_throwsNullPointerException() {
             assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(orderId, causationMessageId, null, reason))
@@ -334,6 +376,70 @@ class OutboxWriterTest {
         @DisplayName("null reason throws NullPointerException")
         void publishCancelPaymentCommand_nullReason_throwsNullPointerException() {
             assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(orderId, causationMessageId, paymentIntentId, null))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("reason is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishOrderCancelledEvent()")
+    class PublishOrderCancelledEvent {
+
+        @Test
+        @DisplayName("successful invocation signs integration event with triggerEventId and reason and saves outbox event")
+        void publishOrderCancelledEvent_success_buildsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class)))
+                  .willReturn(dummySignature);
+            given(serializer.serialize(eq(ORDER_EVENTS_TOPIC), any(Message.class)))
+                  .willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.publishOrderCancelledEvent(orderId, causationMessageId, reason);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] params = signatureParamsCaptor.getValue();
+
+            assertThat(params).hasSize(4);
+            assertThat(UUID.fromString(params[0])).isNotNull();
+            assertThat(params[1]).isEqualTo(orderId.toString());
+            assertThat(Long.parseLong(params[2])).isGreaterThan(0L);
+            assertThat(params[3]).isEqualTo(reason);
+
+            then(serializer).should().serialize(eq(ORDER_EVENTS_TOPIC), messageCaptor.capture());
+            OrderCancelledIntegrationEvent event = (OrderCancelledIntegrationEvent) messageCaptor.getValue();
+
+            assertThat(event.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(event.getReason()).isEqualTo(reason);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(causationMessageId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getAggregateType()).isEqualTo("order.events");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("OrderCancelledIntegrationEvent");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+        }
+
+        @Test
+        @DisplayName("null orderId throws NullPointerException")
+        void publishOrderCancelledEvent_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishOrderCancelledEvent(null, causationMessageId, reason))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("orderId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("null reason throws NullPointerException")
+        void publishOrderCancelledEvent_nullReason_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishOrderCancelledEvent(orderId, causationMessageId, null))
                   .isInstanceOf(NullPointerException.class)
                   .hasMessage("reason is marked non-null but is null");
 

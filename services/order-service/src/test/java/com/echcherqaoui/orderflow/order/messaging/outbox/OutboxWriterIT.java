@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -121,28 +122,86 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
             assertThat(decoded.getMetadata().getCausationId()).isEqualTo(causationMessageId);
             assertThat(decoded.getMetadata().getSignature()).isNotBlank();
         }
+
+        @Test
+        @Transactional
+        @DisplayName("publishing multiple commands in single transaction persists all records sequentially")
+        void publishingMultipleCommands_persistsAllInSameTransaction() {
+            UUID orderId = UUID.randomUUID();
+            String causationId = UUID.randomUUID().toString();
+
+            outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 5000L);
+            outboxWriter.publishReleaseInventoryCommand(orderId, causationId, "cart-multi");
+
+            entityManager.flush();
+            entityManager.clear();
+
+            List<OutboxEvent> events = entityManager
+                  .createQuery(
+                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId ORDER BY e.createdAt ASC",
+                        OutboxEvent.class
+                  )
+                  .setParameter("orderId", orderId.toString())
+                  .getResultList();
+
+            assertThat(events).hasSize(2);
+            assertThat(events.get(0).getEventType()).isEqualTo("ChargePaymentCommand");
+            assertThat(events.get(1).getEventType()).isEqualTo("ReleaseInventoryCommand");
+        }
     }
 
     @Nested
     @DisplayName("Transactional Integrity")
     class TransactionalIntegrity {
 
-        @Test
-        @DisplayName("publishing without an active transaction throws IllegalTransactionStateException")
-        void nonTransactionalCall_throwsIllegalTransactionStateException() {
-            UUID orderId = UUID.randomUUID();
+        private final UUID orderId = UUID.randomUUID();
+        private final String reservationId = UUID.randomUUID().toString();
 
+        @Test
+        @DisplayName("publishChargePaymentCommand without an active transaction throws IllegalTransactionStateException")
+        void publishChargePaymentCommand_noTransaction_throwsException() {
             assertThatThrownBy(() -> outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 1000L))
                   .isInstanceOf(IllegalTransactionStateException.class);
+        }
 
-            assertThatThrownBy(() -> outboxWriter.publishReleaseInventoryCommand(orderId, UUID.randomUUID().toString(), "cart-1"))
+        @Test
+        @DisplayName("publishReleaseInventoryCommand without an active transaction throws IllegalTransactionStateException")
+        void publishReleaseInventoryCommand_noTransaction_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.publishReleaseInventoryCommand(orderId, reservationId, "cart-1"))
                   .isInstanceOf(IllegalTransactionStateException.class);
+        }
 
-            assertThatThrownBy(() -> outboxWriter.publishExtendReservationCommand(orderId, UUID.randomUUID().toString(), "cart-1"))
+        @Test
+        @DisplayName("publishExtendReservationCommand without an active transaction throws IllegalTransactionStateException")
+        void publishExtendReservationCommand_noTransaction_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.publishExtendReservationCommand(orderId, reservationId, "cart-1"))
                   .isInstanceOf(IllegalTransactionStateException.class);
+        }
 
-            assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(orderId, UUID.randomUUID().toString(), "pi_123", "REASON"))
+        @Test
+        @DisplayName("publishCancelPaymentCommand without an active transaction throws IllegalTransactionStateException")
+        void publishCancelPaymentCommand_noTransaction_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(orderId, reservationId, "pi_123", "REASON"))
                   .isInstanceOf(IllegalTransactionStateException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("transaction rollback discards written outbox entries")
+        void transactionRollback_discardsOutboxEntries() {
+            outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 2000L);
+            entityManager.flush();
+
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+
+            TestTransaction.start();
+            List<OutboxEvent> rows = entityManager
+                  .createQuery("SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId", OutboxEvent.class)
+                  .setParameter("orderId", orderId.toString())
+                  .getResultList();
+
+            assertThat(rows).isEmpty();
         }
     }
 
@@ -160,7 +219,8 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
               .getResultList();
 
         assertThat(rows).hasSize(1);
-        OutboxEvent event = rows.getFirst();
+        OutboxEvent event = rows.getFirst(); // Use rows.get(0) if below Java 21
+
         assertThat(event.getEventType()).isEqualTo(eventType);
         assertThat(event.getPayload()).isNotEmpty();
         return event;

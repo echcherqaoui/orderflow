@@ -26,8 +26,7 @@ public class OrderSagaEventListener {
     @Async("taskExecutor")
     @TransactionalEventListener(phase = AFTER_COMMIT)
     public void handlePaymentFailed(@lombok.NonNull OrderPaymentFailedEvent event) {
-
-        emitterRegistry.sendAndKeepOpen(
+        emitterRegistry.sendAndComplete(
               event.orderId(),
               Map.of(
                     "status", "PAYMENT_FAILED",
@@ -63,7 +62,7 @@ public class OrderSagaEventListener {
     @Async("taskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleOrderCancelled(@NonNull ReservationExtensionFailedOrderEvent event) {
-        emitterRegistry.sendAndKeepOpen(
+        emitterRegistry.sendAndComplete(
               event.orderId(),
               Map.of(
                     "status", "ORDER_CANCELLED",

@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
@@ -73,14 +74,14 @@ class PaymentInitiatedEventHandlerTest {
     class IsSignatureValid {
 
         @Test
-        @DisplayName("valid signature delegates to signature service and returns true")
+        @DisplayName("valid signature delegates to signature service with correct parameter order and returns true")
         void isSignatureValid_validSignature_returnsTrue() {
             given(signatureService.verify(
                   signature,
                   messageId,
                   orderId.toString(),
-                  paymentIntentId,
-                  String.valueOf(now.getEpochSecond())
+                  String.valueOf(now.getEpochSecond()),
+                  paymentIntentId
             )).willReturn(true);
 
             boolean isValid = eventHandler.isSignatureValid(event, signatureService);
@@ -90,8 +91,8 @@ class PaymentInitiatedEventHandlerTest {
                   signature,
                   messageId,
                   orderId.toString(),
-                  paymentIntentId,
-                  String.valueOf(now.getEpochSecond())
+                  String.valueOf(now.getEpochSecond()),
+                  paymentIntentId
             );
         }
 
@@ -102,13 +103,27 @@ class PaymentInitiatedEventHandlerTest {
                   signature,
                   messageId,
                   orderId.toString(),
-                  paymentIntentId,
-                  String.valueOf(now.getEpochSecond())
+                  String.valueOf(now.getEpochSecond()),
+                  paymentIntentId
             )).willReturn(false);
 
             boolean isValid = eventHandler.isSignatureValid(event, signatureService);
 
             assertThat(isValid).isFalse();
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void isSignatureValid_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> eventHandler.isSignatureValid(null, signatureService))
+                  .isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @DisplayName("null signatureService throws NullPointerException")
+        void isSignatureValid_nullSignatureService_throwsNullPointerException() {
+            assertThatThrownBy(() -> eventHandler.isSignatureValid(event, null))
+                  .isInstanceOf(NullPointerException.class);
         }
     }
 
@@ -126,6 +141,13 @@ class PaymentInitiatedEventHandlerTest {
                   paymentIntentId,
                   messageId
             );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handle_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> eventHandler.handle(null))
+                  .isInstanceOf(NullPointerException.class);
         }
     }
 }

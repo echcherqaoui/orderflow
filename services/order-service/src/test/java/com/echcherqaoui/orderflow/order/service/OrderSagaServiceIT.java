@@ -3,8 +3,10 @@ package com.echcherqaoui.orderflow.order.service;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
+import com.echcherqaoui.orderflow.order.exception.domain.ResourceNotFoundException;
 import com.echcherqaoui.orderflow.order.model.Order;
 import com.echcherqaoui.orderflow.order.model.OrderSagaHistory;
+import com.echcherqaoui.orderflow.order.model.enums.CancellationReason;
 import com.echcherqaoui.orderflow.order.model.enums.OrderStatus;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStep;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStepStatus;
@@ -44,6 +46,21 @@ class OrderSagaServiceIT implements WithPostgres {
 
     @MockitoBean(name = "outboxProtobufSerializer")
     private KafkaProtobufSerializer<Message> outboxProtobufSerializer;
+
+    @Nested
+    @DisplayName("Order Lookup")
+    class OrderLookup {
+
+        @Test
+        @DisplayName("throws ResourceNotFoundException when target order does not exist")
+        void getOrder_notFound_throwsResourceNotFoundException() {
+            UUID randomOrderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(randomOrderId, "pi_123", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
 
     @Nested
     @DisplayName("handleOrderReserved()")
@@ -188,6 +205,7 @@ class OrderSagaServiceIT implements WithPostgres {
 
             Order updated = entityManager.find(Order.class, order.getId());
             assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(updated.getCancellationReason()).isEqualTo(CancellationReason.PAYMENT_FAILED);
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_INVENTORY);
 
             List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
@@ -239,6 +257,7 @@ class OrderSagaServiceIT implements WithPostgres {
 
             Order updated = entityManager.find(Order.class, order.getId());
             assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(updated.getCancellationReason()).isEqualTo(CancellationReason.RESERVATION_EXPIRED);
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
 
             List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
@@ -249,9 +268,15 @@ class OrderSagaServiceIT implements WithPostgres {
 
         @Test
         @Transactional
-        @DisplayName("handleInventoryReleased updates status CANCELLED and step REVERSED")
-        void handleInventoryReleased_validStep_completesOrderCancellation() {
+        @DisplayName("handleInventoryReleased updates status CANCELLED, step REVERSED, and writes OrderCancelledEvent outbox row")
+        void handleInventoryReleased_validStep_completesOrderCancellationAndPublishesCancelledEvent() {
+            when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
+                  .thenReturn(new byte[]{0, 1, 2});
+
             Order order = createAndPersistOrder(SagaStep.REVERSING_INVENTORY, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.PAYMENT_FAILED);
+            entityManager.merge(order);
+
             String triggerEventId = UUID.randomUUID().toString();
 
             orderSagaService.handleInventoryReleased(order.getId(), order.getCartId(), triggerEventId);
@@ -262,6 +287,40 @@ class OrderSagaServiceIT implements WithPostgres {
             Order updated = entityManager.find(Order.class, order.getId());
             assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLED);
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(1);
+            assertThat(outboxRows.getFirst().getAggregateType()).isEqualTo("order.events");
+            assertThat(outboxRows.getFirst().getEventType()).isEqualTo("OrderCancelledIntegrationEvent");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("handlePaymentCancelled updates status CANCELLED, step REVERSED, and writes OrderCancelledEvent outbox row")
+        void handlePaymentCancelled_validStep_completesOrderCancellationAndPublishesCancelledEvent() {
+            when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
+                  .thenReturn(new byte[]{0, 1, 2});
+
+            Order order = createAndPersistOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
+            order.setPaymentIntentId("pi_12345");
+            entityManager.merge(order);
+
+            String triggerEventId = UUID.randomUUID().toString();
+
+            orderSagaService.handlePaymentCancelled(order.getId(), "pi_12345", triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(1);
+            assertThat(outboxRows.getFirst().getAggregateType()).isEqualTo("order.events");
+            assertThat(outboxRows.getFirst().getEventType()).isEqualTo("OrderCancelledIntegrationEvent");
         }
     }
 
@@ -283,6 +342,24 @@ class OrderSagaServiceIT implements WithPostgres {
 
             Order updated = entityManager.find(Order.class, order.getId());
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.PAYMENT_SESSION_ACTIVE);
+            assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
+            assertThat(findOutboxRows(order.getId())).isEmpty();
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale PaymentCancelledEvent for unexpected saga step is ignored without modifying order or creating outbox events")
+        void handlePaymentCancelled_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            int initialHistorySize = findSagaHistory(order.getId()).size();
+
+            orderSagaService.handlePaymentCancelled(order.getId(), "pi_stale", UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
             assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
             assertThat(findOutboxRows(order.getId())).isEmpty();
         }

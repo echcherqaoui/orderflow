@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.order.messaging.outbox;
 
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.google.protobuf.Message;
@@ -32,7 +33,10 @@ public class SchemaRegistryWarmer {
     public void warmUp() {
         warm("orderflow.payment.commands", ChargePaymentCommand.getDefaultInstance());
         warm("orderflow.payment.commands", CancelPaymentCommand.getDefaultInstance());
+
         warm("orderflow.inventory.commands", ReleaseInventoryCommand.getDefaultInstance());
         warm("orderflow.inventory.commands", ExtendReservationCommand.getDefaultInstance());
+
+        warm("orderflow.order.events", OrderCancelledIntegrationEvent.getDefaultInstance());
     }
 }
