@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.payment.messaging.handler;
 
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
-import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.payment.service.PaymentService;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Timestamp;
@@ -24,7 +24,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
-class ChargePaymentCommandHandlerTest {
+class CancelPaymentCommandHandlerTest {
 
     @Mock
     private PaymentService paymentService;
@@ -33,16 +33,16 @@ class ChargePaymentCommandHandlerTest {
     private SignatureService signatureService;
 
     @InjectMocks
-    private ChargePaymentCommandHandler commandHandler;
+    private CancelPaymentCommandHandler commandHandler;
 
     private final UUID orderId = UUID.randomUUID();
-    private final String userId = "user-123";
-    private final long totalPriceCents = 7500L;
+    private final String paymentIntentId = "pi_stripe_12345";
+    private final String reason = "Customer requested cancellation";
     private final String messageId = "msg-" + UUID.randomUUID();
     private final String signature = "sig-abc-123";
     private final Instant now = Instant.now();
 
-    private ChargePaymentCommand command;
+    private CancelPaymentCommand command;
 
     @BeforeEach
     void setUp() {
@@ -53,10 +53,11 @@ class ChargePaymentCommandHandlerTest {
               .setOccurredAt(Timestamp.newBuilder().setSeconds(now.getEpochSecond()).build())
               .build();
 
-        command = ChargePaymentCommand.newBuilder()
+        command = CancelPaymentCommand.newBuilder()
               .setMetadata(metadata)
-              .setUserId(userId)
-              .setTotalPriceCents(totalPriceCents)
+              .setOrderId(orderId.toString())
+              .setPaymentIntentId(paymentIntentId)
+              .setReason(reason)
               .build();
     }
 
@@ -68,7 +69,7 @@ class ChargePaymentCommandHandlerTest {
         @DisplayName("returns correct protobuf descriptor full name")
         void getDescriptorFullName_returnsExpectedDescriptor() {
             String descriptor = commandHandler.getDescriptorFullName();
-            assertThat(descriptor).isEqualTo(ChargePaymentCommand.getDescriptor().getFullName());
+            assertThat(descriptor).isEqualTo(CancelPaymentCommand.getDescriptor().getFullName());
         }
     }
 
@@ -84,8 +85,8 @@ class ChargePaymentCommandHandlerTest {
                   messageId,
                   orderId.toString(),
                   String.valueOf(now.getEpochSecond()),
-                  userId,
-                  String.valueOf(totalPriceCents)
+                  paymentIntentId,
+                  reason
             )).willReturn(true);
 
             boolean isValid = commandHandler.isSignatureValid(command, signatureService);
@@ -96,8 +97,8 @@ class ChargePaymentCommandHandlerTest {
                   messageId,
                   orderId.toString(),
                   String.valueOf(now.getEpochSecond()),
-                  userId,
-                  String.valueOf(totalPriceCents)
+                  paymentIntentId,
+                  reason
             );
         }
 
@@ -109,8 +110,8 @@ class ChargePaymentCommandHandlerTest {
                   messageId,
                   orderId.toString(),
                   String.valueOf(now.getEpochSecond()),
-                  userId,
-                  String.valueOf(totalPriceCents)
+                  paymentIntentId,
+                  reason
             )).willReturn(false);
 
             boolean isValid = commandHandler.isSignatureValid(command, signatureService);
@@ -124,31 +125,26 @@ class ChargePaymentCommandHandlerTest {
     class Handle {
 
         @Test
-        @DisplayName("successful execution parses correlation id and delegates to initialization service")
-        void handle_success_delegatesToInitializationService() {
+        @DisplayName("successful execution parses order id and delegates to payment service")
+        void handle_success_delegatesToPaymentService() {
             commandHandler.handle(command);
 
-            then(paymentService).should().initializePayment(
+            then(paymentService).should().cancelPayment(
                   orderId,
-                  userId,
-                  totalPriceCents,
+                  paymentIntentId,
+                  reason,
                   messageId
             );
         }
 
         @Test
-        @DisplayName("malformed correlation id throws IllegalArgumentException and aborts processing")
-        void handle_invalidCorrelationId_throwsIllegalArgumentException() {
-            MessageMetadata invalidMetadata = MessageMetadata.newBuilder()
-                  .setMessageId(messageId)
-                  .setCorrelationId("not-a-valid-uuid")
-                  .setSignature(signature)
-                  .build();
-
-            ChargePaymentCommand invalidCommand = ChargePaymentCommand.newBuilder()
-                  .setMetadata(invalidMetadata)
-                  .setUserId(userId)
-                  .setTotalPriceCents(totalPriceCents)
+        @DisplayName("malformed order id throws IllegalArgumentException and aborts processing")
+        void handle_invalidOrderId_throwsIllegalArgumentException() {
+            CancelPaymentCommand invalidCommand = CancelPaymentCommand.newBuilder()
+                  .setMetadata(command.getMetadata())
+                  .setOrderId("not-a-valid-uuid")
+                  .setPaymentIntentId(paymentIntentId)
+                  .setReason(reason)
                   .build();
 
             assertThatThrownBy(() -> commandHandler.handle(invalidCommand))

@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.payment.model;
 
-import com.echcherqaoui.orderflow.payment.AbstractIntegrationTest;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
+import com.echcherqaoui.orderflow.payment.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
@@ -16,6 +16,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -27,7 +28,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class PaymentEntityConstraintIT extends AbstractIntegrationTest {
+@ActiveProfiles("test")
+class PaymentEntityConstraintIT  implements WithPostgres {
 
     @Autowired
     private EntityManager entityManager;
