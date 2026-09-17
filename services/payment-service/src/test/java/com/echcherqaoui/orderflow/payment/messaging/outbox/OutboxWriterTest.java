@@ -3,6 +3,8 @@ package com.echcherqaoui.orderflow.payment.messaging.outbox;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
@@ -273,7 +275,131 @@ class OutboxWriterTest {
             assertThatThrownBy(() -> outboxWriter.publishPaymentCancelledEvent(null, paymentIntentId, reason, causationId))
                   .isInstanceOf(NullPointerException.class);
 
+            assertThatThrownBy(() -> outboxWriter.publishPaymentCancelledEvent(orderId, null, reason, causationId))
+                  .isInstanceOf(NullPointerException.class);
+
             assertThatThrownBy(() -> outboxWriter.publishPaymentCancelledEvent(orderId, paymentIntentId, null, causationId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("writePaymentChargedEvent()")
+    class WritePaymentChargedEvent {
+
+        private final String orderIdStr = UUID.randomUUID().toString();
+        private final String paymentIntentId = "pi_charged_123";
+
+        @Test
+        @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
+        void writePaymentChargedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.writePaymentChargedEvent(orderIdStr, paymentIntentId);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] capturedParams = signatureParamsCaptor.getValue();
+
+            assertThat(capturedParams).hasSize(4);
+            assertThat(capturedParams[1]).isEqualTo(orderIdStr);
+            assertThat(capturedParams[3]).isEqualTo(paymentIntentId);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            PaymentChargedEvent event = (PaymentChargedEvent) messageCaptor.getValue();
+
+            assertThat(event.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderIdStr);
+            assertThat(event.getMetadata().getCausationId()).isEmpty();
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getEventType()).isEqualTo("PaymentChargedEvent");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderIdStr);
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+        }
+
+        @Test
+        @DisplayName("null mandatory arguments throw NullPointerException")
+        void writePaymentChargedEvent_nullArguments_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.writePaymentChargedEvent(null, paymentIntentId))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThatThrownBy(() -> outboxWriter.writePaymentChargedEvent(orderIdStr, null))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("writePaymentFailedEvent()")
+    class WritePaymentFailedEvent {
+
+        private final String orderIdStr = UUID.randomUUID().toString();
+        private final String paymentIntentId = "pi_failed_123";
+        private final String failureReason = "Card declined: Insufficient funds";
+
+        @Test
+        @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
+        void writePaymentFailedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.writePaymentFailedEvent(orderIdStr, paymentIntentId, failureReason);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] capturedParams = signatureParamsCaptor.getValue();
+
+            assertThat(capturedParams).hasSize(5);
+            assertThat(capturedParams[1]).isEqualTo(orderIdStr);
+            assertThat(capturedParams[3]).isEqualTo(paymentIntentId);
+            assertThat(capturedParams[4]).isEqualTo(failureReason);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            PaymentFailedEvent event = (PaymentFailedEvent) messageCaptor.getValue();
+
+            assertThat(event.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(event.getFailureReason()).isEqualTo(failureReason);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderIdStr);
+            assertThat(event.getMetadata().getCausationId()).isEmpty();
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getEventType()).isEqualTo("PaymentFailedEvent");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderIdStr);
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+        }
+
+        @Test
+        @DisplayName("null failureReason falls back to default 'Payment failed' string")
+        void writePaymentFailedEvent_nullFailureReason_usesDefaultMessage() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+
+            outboxWriter.writePaymentFailedEvent(orderIdStr, paymentIntentId, null);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            PaymentFailedEvent event = (PaymentFailedEvent) messageCaptor.getValue();
+
+            assertThat(event.getFailureReason()).isEqualTo("Payment failed");
+        }
+
+        @Test
+        @DisplayName("null mandatory arguments throw NullPointerException")
+        void writePaymentFailedEvent_nullMandatoryArguments_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.writePaymentFailedEvent(null, paymentIntentId, failureReason))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThatThrownBy(() -> outboxWriter.writePaymentFailedEvent(orderIdStr, null, failureReason))
                   .isInstanceOf(NullPointerException.class);
 
             verifyNoInteractions(signatureService, serializer, outboxEventRepository);

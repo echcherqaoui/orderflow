@@ -4,6 +4,8 @@ import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
@@ -143,5 +145,42 @@ public class OutboxWriter {
               .build();
 
         persist(paymentCancelledEvent, orderIdStr);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void writePaymentChargedEvent(@lombok.NonNull String orderId,
+                                         @lombok.NonNull String paymentIntentId) {
+        MessageMetadata metadata = createMetadata(
+              orderId,
+              null, // Causation ID
+              paymentIntentId
+        );
+
+        PaymentChargedEvent paymentChargedEvent = PaymentChargedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setPaymentIntentId(paymentIntentId)
+              .build();
+
+        persist(paymentChargedEvent, orderId);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void writePaymentFailedEvent(@lombok.NonNull String orderId,
+                                        @lombok.NonNull String paymentIntentId,
+                                        String failureReason) {
+        MessageMetadata metadata = createMetadata(
+              orderId,
+              null,
+              paymentIntentId,
+              failureReason
+        );
+
+        PaymentFailedEvent paymentFailedEvent = PaymentFailedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setPaymentIntentId(paymentIntentId)
+              .setFailureReason(failureReason != null ? failureReason : "Payment failed")
+              .build();
+
+        persist(paymentFailedEvent, orderId);
     }
 }

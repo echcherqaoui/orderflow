@@ -2,6 +2,8 @@ package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
@@ -306,6 +308,181 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
         void publishPaymentCancelledEvent_nullPaymentIntentId_throwsNullPointerException() {
             assertThatThrownBy(() ->
                   outboxWriter.publishPaymentCancelledEvent(orderId, null, reason, triggerEventId)
+            ).isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("writePaymentChargedEvent()")
+    class WritePaymentChargedEvent {
+
+        private final String paymentIntentId = "pi_stripe_charged_123";
+
+        @Test
+        @Transactional
+        @DisplayName("successfully serializes payload using Schema Registry wire format and persists complete outbox entity")
+        void writePaymentChargedEvent_success_persistsAndSerializesPayload() {
+            outboxWriter.writePaymentChargedEvent(orderId.toString(), paymentIntentId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            List<OutboxEvent> rows = entityManager
+                  .createQuery(
+                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
+                        OutboxEvent.class
+                  ).setParameter("orderId", orderId.toString())
+                  .setParameter("aggregateType", "payment.events")
+                  .getResultList();
+
+            assertThat(rows).hasSize(1);
+            OutboxEvent event = rows.getFirst();
+
+            // Verify Outbox Metadata
+            assertThat(event.getId()).isNotNull();
+            assertThat(event.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(event.getAggregateType()).isEqualTo("payment.events");
+            assertThat(event.getEventType()).isEqualTo("PaymentChargedEvent");
+            assertThat(event.getCreatedAt()).isNotNull();
+            assertThat(event.getPayload()).isNotEmpty();
+
+            // Verify Protobuf Wire Format & Schema Registry Decoding
+            Map<String, Object> deserializerConfig = new HashMap<>();
+            deserializerConfig.put(
+                  "schema.registry.url",
+                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081)
+            );
+            deserializerConfig.put("specific.protobuf.value.type", PaymentChargedEvent.class);
+
+            try (KafkaProtobufDeserializer<PaymentChargedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+                deserializer.configure(deserializerConfig, false);
+
+                PaymentChargedEvent decoded = deserializer.deserialize("orderflow.payment.events", event.getPayload());
+
+                // Payload assertions
+                assertThat(decoded.getPaymentIntentId()).isEqualTo(paymentIntentId);
+
+                // Metadata assertions
+                assertThat(decoded.getMetadata().getMessageId()).isNotBlank();
+                assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getMetadata().hasOccurredAt()).isTrue();
+                assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+            }
+        }
+
+        @Test
+        @DisplayName("throws IllegalTransactionStateException when called without an active transaction")
+        void writePaymentChargedEvent_noActiveTransaction_throwsIllegalTransactionStateException() {
+            String orderIdString = orderId.toString();
+            assertThatThrownBy(() ->
+                  outboxWriter.writePaymentChargedEvent(orderIdString, paymentIntentId)
+            ).isInstanceOf(IllegalTransactionStateException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when orderId is null")
+        void writePaymentChargedEvent_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.writePaymentChargedEvent(null, paymentIntentId)
+            ).isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when paymentIntentId is null")
+        void writePaymentChargedEvent_nullPaymentIntentId_throwsNullPointerException() {
+            String orderIdStr = orderId.toString();
+            assertThatThrownBy(() ->
+                  outboxWriter.writePaymentChargedEvent(orderIdStr, null)
+            ).isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("writePaymentFailedEvent()")
+    class WritePaymentFailedEvent {
+
+        private final String paymentIntentId = "pi_stripe_failed_123";
+        private final String failureReason = "Insufficient funds";
+
+        @Test
+        @Transactional
+        @DisplayName("successfully serializes payload using Schema Registry wire format and persists complete outbox entity")
+        void writePaymentFailedEvent_success_persistsAndSerializesPayload() {
+            outboxWriter.writePaymentFailedEvent(orderId.toString(), paymentIntentId, failureReason);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            List<OutboxEvent> rows = entityManager
+                  .createQuery(
+                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
+                        OutboxEvent.class
+                  ).setParameter("orderId", orderId.toString())
+                  .setParameter("aggregateType", "payment.events")
+                  .getResultList();
+
+            assertThat(rows).hasSize(1);
+            OutboxEvent event = rows.getFirst();
+
+            // Verify Outbox Metadata
+            assertThat(event.getId()).isNotNull();
+            assertThat(event.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(event.getAggregateType()).isEqualTo("payment.events");
+            assertThat(event.getEventType()).isEqualTo("PaymentFailedEvent");
+            assertThat(event.getCreatedAt()).isNotNull();
+            assertThat(event.getPayload()).isNotEmpty();
+
+            // Verify Protobuf Wire Format & Schema Registry Decoding
+            Map<String, Object> deserializerConfig = new HashMap<>();
+            deserializerConfig.put(
+                  "schema.registry.url",
+                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081)
+            );
+            deserializerConfig.put("specific.protobuf.value.type", PaymentFailedEvent.class);
+
+            try (KafkaProtobufDeserializer<PaymentFailedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+                deserializer.configure(deserializerConfig, false);
+
+                PaymentFailedEvent decoded = deserializer.deserialize("orderflow.payment.events", event.getPayload());
+
+                // Payload assertions
+                assertThat(decoded.getPaymentIntentId()).isEqualTo(paymentIntentId);
+                assertThat(decoded.getFailureReason()).isEqualTo(failureReason);
+
+                // Metadata assertions
+                assertThat(decoded.getMetadata().getMessageId()).isNotBlank();
+                assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getMetadata().hasOccurredAt()).isTrue();
+                assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+            }
+        }
+        @Test
+        @DisplayName("throws IllegalTransactionStateException when called without an active transaction")
+        void writePaymentFailedEvent_noActiveTransaction_throwsIllegalTransactionStateException() {
+            String orderIdStr = orderId.toString();
+            assertThatThrownBy(() ->
+                  outboxWriter.writePaymentFailedEvent(orderIdStr, paymentIntentId, failureReason)
+            ).isInstanceOf(IllegalTransactionStateException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when orderId is null")
+        void writePaymentFailedEvent_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.writePaymentFailedEvent(null, paymentIntentId, failureReason)
+            ).isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when paymentIntentId is null")
+        void writePaymentFailedEvent_nullPaymentIntentId_throwsNullPointerException() {
+            String orderIdStr = orderId.toString();
+            assertThatThrownBy(() ->
+                  outboxWriter.writePaymentFailedEvent(orderIdStr, null, failureReason)
             ).isInstanceOf(NullPointerException.class);
         }
     }

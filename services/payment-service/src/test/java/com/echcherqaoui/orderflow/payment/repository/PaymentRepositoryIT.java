@@ -146,4 +146,39 @@ class PaymentRepositoryIT implements WithPostgres {
             assertThat(paymentOpt).isEmpty();
         }
     }
+
+    @Nested
+    @DisplayName("findByPaymentIntentId()")
+    class FindByPaymentIntentId {
+
+        @Test
+        @DisplayName("returns entity when payment exists for given payment intent ID")
+        void findByPaymentIntentId_returnsPayment_whenPaymentExists() {
+            String paymentIntentId = "pi_" + UUID.randomUUID();
+
+            Payment payment = new Payment()
+                  .setOrderId(UUID.randomUUID())
+                  .setPaymentIntentId(paymentIntentId)
+                  .setUserId("user-" + UUID.randomUUID())
+                  .setTotalAmountCents(5000L)
+                  .setStatus(PaymentStatus.PENDING);
+
+            paymentRepository.save(payment);
+
+            Optional<Payment> paymentOpt = paymentRepository.findByPaymentIntentId(paymentIntentId);
+
+            assertThat(paymentOpt).isPresent();
+            assertThat(paymentOpt.get().getPaymentIntentId()).isEqualTo(paymentIntentId);
+        }
+
+        @Test
+        @DisplayName("returns empty optional when payment does not exist for given payment intent ID")
+        void findByPaymentIntentId_returnsEmpty_whenPaymentDoesNotExist() {
+            String nonExistentPaymentIntentId = "pi_" + UUID.randomUUID();
+
+            Optional<Payment> paymentOpt = paymentRepository.findByPaymentIntentId(nonExistentPaymentIntentId);
+
+            assertThat(paymentOpt).isEmpty();
+        }
+    }
 }
