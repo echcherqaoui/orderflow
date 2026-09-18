@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
+import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
 import com.echcherqaoui.orderflow.payment.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.payment.model.Payment;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
@@ -14,9 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.PAYMENT_INTENT_NOT_FOUND;
+import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.PAYMENT_NOT_FOUND_FOR_ORDER;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.CANCELLED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.FAILED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.PENDING;
+import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.SUCCESS;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +38,11 @@ public class PaymentPersistenceService {
     @Transactional(readOnly = true)
     public Optional<PaymentCancelProjection> findByOrderId(UUID orderId) {
         return paymentRepository.findByOrderId(orderId, PaymentCancelProjection.class);
+    }
+
+    public Payment findByPaymentIntentId(String paymentIntentId) {
+        return paymentRepository.findByPaymentIntentId(paymentIntentId)
+              .orElseThrow(() -> new PaymentNotFoundException(PAYMENT_INTENT_NOT_FOUND));
     }
 
     @Transactional
@@ -78,7 +87,7 @@ public class PaymentPersistenceService {
                                           String reason,
                                           String triggerEventId) {
         Payment payment = paymentRepository.findByOrderId(orderId, Payment.class)
-              .orElseThrow(() -> new IllegalStateException("Cannot cancel non-existent payment for orderId: " + orderId));
+              .orElseThrow(() -> new PaymentNotFoundException(PAYMENT_NOT_FOUND_FOR_ORDER, orderId));
 
         payment.setStatus(CANCELLED)
               .setFailureReason(reason);
@@ -94,5 +103,37 @@ public class PaymentPersistenceService {
         );
 
         log.info("Payment cancellation persisted and outbox event published for orderId: {}", orderId);
+    }
+
+    @Transactional
+    public void markPaymentChargedAndOutbox(@NonNull String paymentIntentId) {
+        Payment payment = findByPaymentIntentId(paymentIntentId);
+
+        payment.setStatus(SUCCESS);
+
+        paymentRepository.saveAndFlush(payment);
+
+        outboxWriter.writePaymentChargedEvent(
+              payment.getOrderId().toString(),
+              paymentIntentId
+        );
+        log.info("Payment [{}] successfully marked as SUCCESS and outbox event published", paymentIntentId);
+    }
+
+    @Transactional
+    public void markPaymentFailedAndOutbox(@NonNull String paymentIntentId, String failureReason) {
+        Payment payment = findByPaymentIntentId(paymentIntentId);
+
+        payment.setStatus(FAILED)
+              .setFailureReason(failureReason);
+
+        paymentRepository.saveAndFlush(payment);
+
+        outboxWriter.writePaymentFailedEvent(
+              payment.getOrderId().toString(),
+              paymentIntentId,
+              failureReason
+        );
+        log.info("Payment [{}] marked as FAILED and outbox event published. Reason: {}", paymentIntentId, failureReason);
     }
 }

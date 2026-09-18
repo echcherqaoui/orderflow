@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
+import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
 import com.echcherqaoui.orderflow.payment.model.Payment;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
@@ -93,6 +94,30 @@ class PaymentPersistenceServiceIT implements WithPostgres {
             Optional<PaymentCancelProjection> projection = transactionalWriter.findByOrderId(orderId);
 
             assertThat(projection).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("findByPaymentIntentId()")
+    class FindByPaymentIntentId {
+
+        @Test
+        @DisplayName("returns payment entity when found by payment intent ID")
+        void findByPaymentIntentId_whenExists_returnsPayment() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            Payment payment = transactionalWriter.findByPaymentIntentId(pspResponse.paymentIntentId());
+
+            assertThat(payment).isNotNull();
+            assertThat(payment.getOrderId()).isEqualTo(orderId);
+            assertThat(payment.getPaymentIntentId()).isEqualTo(pspResponse.paymentIntentId());
+        }
+
+        @Test
+        @DisplayName("throws PaymentNotFoundException when payment intent ID does not exist")
+        void findByPaymentIntentId_whenDoesNotExist_throwsPaymentNotFoundException() {
+            assertThatThrownBy(() -> transactionalWriter.findByPaymentIntentId("pi_non_existent"))
+                  .isInstanceOf(PaymentNotFoundException.class);
         }
     }
 
@@ -243,12 +268,11 @@ class PaymentPersistenceServiceIT implements WithPostgres {
         }
 
         @Test
-        @DisplayName("cancelling non-existent payment throws IllegalStateException and aborts outbox publication")
-        void saveCancellationAndOutbox_nonExistentPayment_throwsException() {
+        @DisplayName("cancelling non-existent payment throws PaymentNotFoundException and aborts outbox publication")
+        void saveCancellationAndOutbox_nonExistentPayment_throwsPaymentNotFoundException() {
             assertThatThrownBy(() ->
                   transactionalWriter.saveCancellationAndOutbox(orderId, paymentIntentId, cancellationReason, triggerEventId)
-            ).isInstanceOf(IllegalStateException.class)
-                  .hasMessageContaining("Cannot cancel non-existent payment for orderId: " + orderId);
+            ).isInstanceOf(PaymentNotFoundException.class);
 
             assertThat(outboxEventRepository.findAll()).isEmpty();
         }
@@ -265,6 +289,109 @@ class PaymentPersistenceServiceIT implements WithPostgres {
             assertThatThrownBy(() ->
                   transactionalWriter.saveCancellationAndOutbox(orderId, paymentIntentId, cancellationReason, triggerEventId)
             ).isInstanceOf(RuntimeException.class)
+                  .hasMessage("Outbox database persistence failure");
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        }
+    }
+
+    @Nested
+    @DisplayName("markPaymentChargedAndOutbox()")
+    class MarkPaymentChargedAndOutbox {
+
+        @Test
+        @DisplayName("atomic commit updates status to SUCCESS and writes outbox event")
+        void markPaymentChargedAndOutbox_success_updatesStatusAndWritesOutboxAtomically() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            outboxEventRepository.deleteAll();
+
+            transactionalWriter.markPaymentChargedAndOutbox(pspResponse.paymentIntentId());
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+            assertThat(outboxEvents.getFirst().getEventType()).isEqualTo("PaymentChargedEvent");
+        }
+
+        @Test
+        @DisplayName("non-existent payment intent throws PaymentNotFoundException and aborts outbox publication")
+        void markPaymentChargedAndOutbox_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
+            assertThatThrownBy(() -> transactionalWriter.markPaymentChargedAndOutbox("pi_non_existent"))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("outbox persistence failure rolls back payment status update")
+        void markPaymentChargedAndOutbox_outboxFailure_rollsBackEntireTransaction() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            willThrow(new RuntimeException("Outbox database persistence failure"))
+                  .given(outboxEventRepository)
+                  .save(any(OutboxEvent.class));
+
+            String paymentIntentId = pspResponse.paymentIntentId();
+
+            assertThatThrownBy(() -> transactionalWriter.markPaymentChargedAndOutbox(paymentIntentId))
+                  .isInstanceOf(RuntimeException.class)
+                  .hasMessage("Outbox database persistence failure");
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        }
+    }
+
+
+
+    @Nested
+    @DisplayName("markPaymentFailedAndOutbox()")
+    class MarkPaymentFailedAndOutbox {
+
+        private final String failureReason = "Insufficient funds";
+
+        @Test
+        @DisplayName("atomic commit updates status to FAILED, sets reason, and writes outbox event")
+        void markPaymentFailedAndOutbox_success_updatesStatusAndWritesOutboxAtomically() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            outboxEventRepository.deleteAll();
+
+            transactionalWriter.markPaymentFailedAndOutbox(pspResponse.paymentIntentId(), failureReason);
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(payment.getFailureReason()).isEqualTo(failureReason);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+            assertThat(outboxEvents.getFirst().getEventType()).isEqualTo("PaymentFailedEvent");
+        }
+
+        @Test
+        @DisplayName("non-existent payment intent throws PaymentNotFoundException and aborts outbox publication")
+        void markPaymentFailedAndOutbox_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
+            assertThatThrownBy(() -> transactionalWriter.markPaymentFailedAndOutbox("pi_non_existent", failureReason))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("outbox persistence failure rolls back payment status update")
+        void markPaymentFailedAndOutbox_outboxFailure_rollsBackEntireTransaction() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            willThrow(new RuntimeException("Outbox database persistence failure"))
+                  .given(outboxEventRepository)
+                  .save(any(OutboxEvent.class));
+
+            String paymentIntentId = pspResponse.paymentIntentId();
+
+            assertThatThrownBy(() -> transactionalWriter.markPaymentFailedAndOutbox(paymentIntentId, failureReason))
+                  .isInstanceOf(RuntimeException.class)
                   .hasMessage("Outbox database persistence failure");
 
             Payment payment = paymentRepository.findAll().getFirst();

@@ -24,3 +24,14 @@ message PaymentCancelledEvent {
   string payment_intent_id = 3;
   string reason = 4;
 }
+
+message PaymentChargedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string payment_intent_id = 2;
+}
+
+message PaymentFailedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string payment_intent_id = 2;
+  string failure_reason = 3;
+}

@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
+import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
 import com.echcherqaoui.orderflow.payment.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.payment.model.Payment;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
@@ -109,6 +110,44 @@ class PaymentPersistenceServiceTest {
 
             assertThat(result).isEmpty();
             then(paymentRepository).should().findByOrderId(orderId, PaymentCancelProjection.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("findByPaymentIntentId()")
+    class FindByPaymentIntentId {
+
+        private final String paymentIntentId = "pi_123456";
+
+        @Test
+        @DisplayName("returns payment entity when payment exists for given paymentIntentId")
+        void findByPaymentIntentId_exists_returnsPayment() {
+            Payment payment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setStatus(PaymentStatus.PENDING);
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(payment));
+
+            Payment result = paymentPersistenceService.findByPaymentIntentId(paymentIntentId);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(result.getOrderId()).isEqualTo(orderId);
+            then(paymentRepository).should().findByPaymentIntentId(paymentIntentId);
+        }
+
+        @Test
+        @DisplayName("throws PaymentNotFoundException when payment intent ID does not exist")
+        void findByPaymentIntentId_doesNotExist_throwsPaymentNotFoundException() {
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> paymentPersistenceService.findByPaymentIntentId(paymentIntentId))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            then(paymentRepository).should().findByPaymentIntentId(paymentIntentId);
         }
     }
 
@@ -266,14 +305,13 @@ class PaymentPersistenceServiceTest {
         }
 
         @Test
-        @DisplayName("throws IllegalStateException when target payment record is not found")
-        void saveCancellationAndOutbox_paymentNotFound_throwsIllegalStateException() {
+        @DisplayName("throws PaymentNotFoundException when target payment record is not found")
+        void saveCancellationAndOutbox_paymentNotFound_throwsPaymentNotFoundException() {
             given(paymentRepository.findByOrderId(orderId, Payment.class))
                   .willReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentPersistenceService.saveCancellationAndOutbox(orderId, paymentIntentId, cancellationReason, triggerEventId))
-                  .isInstanceOf(IllegalStateException.class)
-                  .hasMessageContaining("Cannot cancel non-existent payment for orderId: " + orderId);
+                  .isInstanceOf(PaymentNotFoundException.class);
 
             then(paymentRepository).should().findByOrderId(orderId, Payment.class);
             then(paymentRepository).shouldHaveNoMoreInteractions();
@@ -316,6 +354,172 @@ class PaymentPersistenceServiceTest {
 
             then(paymentRepository).should().saveAndFlush(any(Payment.class));
             then(outboxWriter).should().publishPaymentCancelledEvent(orderId, paymentIntentId, cancellationReason, triggerEventId);
+        }
+    }
+
+    @Nested
+    @DisplayName("markPaymentChargedAndOutbox()")
+    class MarkPaymentChargedAndOutbox {
+
+        private final String paymentIntentId = "pi_charged_123";
+
+        @Test
+        @DisplayName("successful execution updates payment status to SUCCESS, saves payment, and writes charged outbox event")
+        void markPaymentChargedAndOutbox_success_updatesStatusAndWritesOutbox() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setStatus(PaymentStatus.PENDING);
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            paymentPersistenceService.markPaymentChargedAndOutbox(paymentIntentId);
+
+            then(paymentRepository).should().saveAndFlush(paymentCaptor.capture());
+            Payment savedPayment = paymentCaptor.getValue();
+
+            assertThat(savedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+
+            then(outboxWriter).should().writePaymentChargedEvent(orderId.toString(), paymentIntentId);
+        }
+
+        @Test
+        @DisplayName("throws PaymentNotFoundException when payment intent ID is not found")
+        void markPaymentChargedAndOutbox_paymentNotFound_throwsPaymentNotFoundException() {
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> paymentPersistenceService.markPaymentChargedAndOutbox(paymentIntentId))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            then(paymentRepository).should().findByPaymentIntentId(paymentIntentId);
+            then(paymentRepository).shouldHaveNoMoreInteractions();
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("repository save failure propagates exception and aborts outbox publication")
+        void markPaymentChargedAndOutbox_repositorySaveFails_propagatesExceptionAndAbortsOutbox() {
+            Payment existingPayment = new Payment().setOrderId(orderId).setStatus(PaymentStatus.PENDING);
+            RuntimeException dbException = new RuntimeException("Database error");
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class))).willThrow(dbException);
+
+            assertThatThrownBy(() -> paymentPersistenceService.markPaymentChargedAndOutbox(paymentIntentId))
+                  .isSameAs(dbException);
+
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("outbox publication failure propagates exception after payment status is updated")
+        void markPaymentChargedAndOutbox_outboxWriterFails_propagatesException() {
+            Payment existingPayment = new Payment().setOrderId(orderId).setStatus(PaymentStatus.PENDING);
+            RuntimeException outboxException = new RuntimeException("Outbox publication failed");
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+            willThrow(outboxException)
+                  .given(outboxWriter)
+                  .writePaymentChargedEvent(orderId.toString(), paymentIntentId);
+
+            assertThatThrownBy(() -> paymentPersistenceService.markPaymentChargedAndOutbox(paymentIntentId))
+                  .isSameAs(outboxException);
+
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
+            then(outboxWriter).should().writePaymentChargedEvent(orderId.toString(), paymentIntentId);
+        }
+    }
+
+    @Nested
+    @DisplayName("markPaymentFailedAndOutbox()")
+    class MarkPaymentFailedAndOutbox {
+
+        private final String paymentIntentId = "pi_failed_123";
+        private final String failureReason = "Card declined";
+
+        @Test
+        @DisplayName("successful execution updates payment status to FAILED, sets reason, saves payment, and writes failed outbox event")
+        void markPaymentFailedAndOutbox_success_updatesStatusAndWritesOutbox() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setStatus(PaymentStatus.PENDING);
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            paymentPersistenceService.markPaymentFailedAndOutbox(paymentIntentId, failureReason);
+
+            then(paymentRepository).should().saveAndFlush(paymentCaptor.capture());
+            Payment savedPayment = paymentCaptor.getValue();
+
+            assertThat(savedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(savedPayment.getFailureReason()).isEqualTo(failureReason);
+
+            then(outboxWriter).should().writePaymentFailedEvent(orderId.toString(), paymentIntentId, failureReason);
+        }
+
+        @Test
+        @DisplayName("throws PaymentNotFoundException when payment intent ID is not found")
+        void markPaymentFailedAndOutbox_paymentNotFound_throwsPaymentNotFoundException() {
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> paymentPersistenceService.markPaymentFailedAndOutbox(paymentIntentId, failureReason))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            then(paymentRepository).should().findByPaymentIntentId(paymentIntentId);
+            then(paymentRepository).shouldHaveNoMoreInteractions();
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("repository save failure propagates exception and aborts outbox publication")
+        void markPaymentFailedAndOutbox_repositorySaveFails_propagatesExceptionAndAbortsOutbox() {
+            Payment existingPayment = new Payment().setOrderId(orderId).setStatus(PaymentStatus.PENDING);
+            RuntimeException dbException = new RuntimeException("Database error");
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class))).willThrow(dbException);
+
+            assertThatThrownBy(() -> paymentPersistenceService.markPaymentFailedAndOutbox(paymentIntentId, failureReason))
+                  .isSameAs(dbException);
+
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("outbox publication failure propagates exception after payment status is updated")
+        void markPaymentFailedAndOutbox_outboxWriterFails_propagatesException() {
+            Payment existingPayment = new Payment().setOrderId(orderId).setStatus(PaymentStatus.PENDING);
+            RuntimeException outboxException = new RuntimeException("Outbox publication failed");
+
+            given(paymentRepository.findByPaymentIntentId(paymentIntentId))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+            willThrow(outboxException)
+                  .given(outboxWriter)
+                  .writePaymentFailedEvent(orderId.toString(), paymentIntentId, failureReason);
+
+            assertThatThrownBy(() -> paymentPersistenceService.markPaymentFailedAndOutbox(paymentIntentId, failureReason))
+                  .isSameAs(outboxException);
+
+            then(paymentRepository).should().saveAndFlush(any(Payment.class));
+            then(outboxWriter).should().writePaymentFailedEvent(orderId.toString(), paymentIntentId, failureReason);
         }
     }
 }

@@ -3,9 +3,6 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- ═══════════════════════════════════════════════════════════
-       Parent POM - Inherits common configuration
-   ════════════════════════════════════════════════════════════════ -->
     <parent>
         <groupId>com.echcherqaoui.orderflow</groupId>
         <artifactId>orderflow</artifactId>
@@ -13,31 +10,23 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <!-- ═══════════════════════════════════════════════════════════
-        Project Metadata
-    ════════════════════════════════════════════════════════════════ -->
     <artifactId>orderflow-events-contract</artifactId>
     <packaging>jar</packaging>
     <name>Orderflow :: Events Contract</name>
     <description>Shared Protocol Buffer event schemas and generated Java contracts</description>
 
     <dependencies>
-        <!-- Protocol Buffers Java Core -->
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
         </dependency>
 
-        <!-- Confluent Protobuf Serializer for Schema Registry -->
         <dependency>
             <groupId>io.confluent</groupId>
             <artifactId>kafka-protobuf-serializer</artifactId>
         </dependency>
     </dependencies>
 
-    <!-- ═══════════════════════════════════════════════════════════
-       Build Configuration
-   ════════════════════════════════════════════════════════════════ -->
     <build>
         <plugins>
             <plugin>
@@ -87,6 +76,8 @@
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitiatedEvent>
                                 <orderflow.payment.events.v1.PaymentInitializationFailedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
                                 <orderflow.payment.events.v1.PaymentCancelledEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentCancelledEvent>
+                                <orderflow.payment.events.v1.PaymentChargedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentChargedEvent>
+                                <orderflow.payment.events.v1.PaymentFailedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentFailedEvent>
 
                                 <!-- Inventory Event Schemas (RecordNameStrategy) -->
                                 <orderflow.inventory.events.v1.ReservationExtendedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.ReservationExtendedEvent>
@@ -110,6 +101,8 @@
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitiatedEvent>
                                 <orderflow.payment.events.v1.PaymentInitializationFailedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentInitializationFailedEvent>
                                 <orderflow.payment.events.v1.PaymentCancelledEvent>PROTOBUF</orderflow.payment.events.v1.PaymentCancelledEvent>
+                                <orderflow.payment.events.v1.PaymentChargedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentChargedEvent>
+                                <orderflow.payment.events.v1.PaymentFailedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentFailedEvent>
 
                                 <!-- Inventory Events -->
                                 <orderflow.inventory.events.v1.ReservationExtendedEvent>PROTOBUF</orderflow.inventory.events.v1.ReservationExtendedEvent>
@@ -162,6 +155,20 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.payment.events.v1.PaymentCancelledEvent>
+
+                                <orderflow.payment.events.v1.PaymentChargedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.events.v1.PaymentChargedEvent>
+
+                                <orderflow.payment.events.v1.PaymentFailedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.events.v1.PaymentFailedEvent>
 
                                 <orderflow.inventory.events.v1.ReservationExtendedEvent>
                                     <reference>
