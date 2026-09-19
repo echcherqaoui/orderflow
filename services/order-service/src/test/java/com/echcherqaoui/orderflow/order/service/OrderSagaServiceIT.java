@@ -57,7 +57,7 @@ class OrderSagaServiceIT implements WithPostgres {
             UUID randomOrderId = UUID.randomUUID();
             String triggerEventId = UUID.randomUUID().toString();
 
-            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(randomOrderId, "pi_123", triggerEventId))
+            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(randomOrderId, "pi_123", "secret_123", triggerEventId))
                   .isInstanceOf(ResourceNotFoundException.class);
         }
     }
@@ -171,9 +171,10 @@ class OrderSagaServiceIT implements WithPostgres {
 
             Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
             String paymentIntentId = "pi_99887766";
+            String clientSecret = "pi_99887766_secret_x1y2z3";
             String triggerEventId = UUID.randomUUID().toString();
 
-            orderSagaService.handlePaymentInitiated(order.getId(), paymentIntentId, triggerEventId);
+            orderSagaService.handlePaymentInitiated(order.getId(), paymentIntentId, clientSecret, triggerEventId);
 
             entityManager.flush();
             entityManager.clear();
@@ -335,7 +336,7 @@ class OrderSagaServiceIT implements WithPostgres {
             Order order = createAndPersistOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
             int initialHistorySize = findSagaHistory(order.getId()).size();
 
-            orderSagaService.handlePaymentInitiated(order.getId(), "pi_9999", UUID.randomUUID().toString());
+            orderSagaService.handlePaymentInitiated(order.getId(), "pi_9999", "secret_9999", UUID.randomUUID().toString());
 
             entityManager.flush();
             entityManager.clear();

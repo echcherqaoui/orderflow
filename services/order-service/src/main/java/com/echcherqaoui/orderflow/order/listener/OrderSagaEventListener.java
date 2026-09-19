@@ -42,7 +42,8 @@ public class OrderSagaEventListener {
               event.orderId(),
               Map.of(
                     "status", "PAYMENT_READY",
-                    "paymentIntentId", event.paymentIntentId()
+                    "paymentIntentId", event.paymentIntentId(),
+                    "clientSecret", event.clientSecret()
               )
         );
     }

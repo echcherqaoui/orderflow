@@ -67,7 +67,7 @@ class OrderSagaEventListenerTest {
         @Test
         @DisplayName("sends PAYMENT_READY status and keeps emitter open")
         void handlePaymentSessionActive_sendsPaymentReadyStatusAndKeepsOpen() {
-            OrderPaymentSessionActiveEvent event = new OrderPaymentSessionActiveEvent(orderId, "pi_123456");
+            OrderPaymentSessionActiveEvent event = new OrderPaymentSessionActiveEvent(orderId, "pi_123456", "secret_mock_123456");
 
             listener.handlePaymentSessionActive(event);
 
@@ -75,7 +75,8 @@ class OrderSagaEventListenerTest {
                   orderId,
                   Map.of(
                         "status", "PAYMENT_READY",
-                        "paymentIntentId", "pi_123456"
+                        "paymentIntentId", "pi_123456",
+                        "clientSecret", "secret_mock_123456"
                   )
             );
         }
