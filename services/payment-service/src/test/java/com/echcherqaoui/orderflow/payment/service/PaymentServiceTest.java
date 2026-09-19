@@ -1,8 +1,8 @@
 package com.echcherqaoui.orderflow.payment.service;
 
-import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
-import com.echcherqaoui.orderflow.payment.exception.domain.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
 import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import org.junit.jupiter.api.BeforeEach;

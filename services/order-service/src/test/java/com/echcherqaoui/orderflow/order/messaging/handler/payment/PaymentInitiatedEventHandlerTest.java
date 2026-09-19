@@ -55,6 +55,7 @@ class PaymentInitiatedEventHandlerTest {
         event = PaymentInitiatedEvent.newBuilder()
               .setMetadata(metadata)
               .setPaymentIntentId(paymentIntentId)
+              .setClientSecret(paymentSecret)
               .build();
     }
 

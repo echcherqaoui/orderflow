@@ -2,8 +2,8 @@ package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
-import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
-import com.echcherqaoui.orderflow.payment.exception.domain.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
 import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
 import com.echcherqaoui.orderflow.payment.model.Payment;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;

@@ -1,7 +1,8 @@
 package com.echcherqaoui.orderflow.payment.mockstripe;
 
-import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
-import com.echcherqaoui.orderflow.payment.exception.domain.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -9,9 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,13 +19,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
-class MockPaymentGatewayIT  implements WithPostgres {
+class MockPaymentGatewayIT implements WithPostgres {
 
     @Autowired
     private MockPaymentGateway mockPaymentGateway;
 
     @Autowired
     private MockPaymentIntentStore intentStore;
+
+    @Autowired
+    private MockPspProperties mockPspProperties;
 
     private final long totalAmountCents = 15000L;
 
@@ -45,10 +47,9 @@ class MockPaymentGatewayIT  implements WithPostgres {
             assertThat(response.paymentIntentId()).isNotBlank();
             assertThat(response.clientSecret()).isNotBlank();
 
-            Optional<MockPaymentIntent> storedIntent = intentStore.findByIdempotencyKey(idempotencyKey);
-            assertThat(storedIntent).isPresent();
-            assertThat(storedIntent.get().paymentIntentId()).isEqualTo(response.paymentIntentId());
-            assertThat(storedIntent.get().clientSecret()).isEqualTo(response.clientSecret());
+            // Verify persistence: repeating the call with the same idempotency key returns the exact same stored intent
+            CreatePaymentIntentResponse secondCall = mockPaymentGateway.createIntent(idempotencyKey, totalAmountCents);
+            assertThat(secondCall.paymentIntentId()).isEqualTo(response.paymentIntentId());
         }
 
         @Test
@@ -61,10 +62,6 @@ class MockPaymentGatewayIT  implements WithPostgres {
 
             assertThat(secondCallResponse.paymentIntentId()).isEqualTo(firstCallResponse.paymentIntentId());
             assertThat(secondCallResponse.clientSecret()).isEqualTo(firstCallResponse.clientSecret());
-
-            Optional<MockPaymentIntent> storedIntent = intentStore.findByIdempotencyKey(idempotencyKey);
-            assertThat(storedIntent).isPresent();
-            assertThat(storedIntent.get().paymentIntentId()).isEqualTo(firstCallResponse.paymentIntentId());
         }
 
         @Test
@@ -73,12 +70,12 @@ class MockPaymentGatewayIT  implements WithPostgres {
             String idempotencyKey = UUID.randomUUID().toString();
 
             try {
-                ReflectionTestUtils.setField(mockPaymentGateway, "simulatePspOutage", true);
+                mockPspProperties.setSimulateOutage(true);
 
                 assertThatThrownBy(() -> mockPaymentGateway.createIntent(idempotencyKey, totalAmountCents))
                       .isInstanceOf(PaymentGatewayTransientException.class);
             } finally {
-                ReflectionTestUtils.setField(mockPaymentGateway, "simulatePspOutage", false);
+                mockPspProperties.setSimulateOutage(false);
             }
         }
     }
@@ -95,8 +92,9 @@ class MockPaymentGatewayIT  implements WithPostgres {
 
             mockPaymentGateway.cancelIntent(created.paymentIntentId());
 
-            assertThat(intentStore.findByPaymentIntentId(created.paymentIntentId())).isEmpty();
-            assertThat(intentStore.findByIdempotencyKey(idempotencyKey)).isEmpty();
+            // Verification: re-issuing computeIfAbsent for the same key creates a brand new intent ID
+            MockPaymentIntent brandNewIntent = intentStore.computeIfAbsent(idempotencyKey, totalAmountCents);
+            assertThat(brandNewIntent.paymentIntentId()).isNotEqualTo(created.paymentIntentId());
         }
 
         @Test
@@ -106,8 +104,6 @@ class MockPaymentGatewayIT  implements WithPostgres {
 
             assertThatCode(() -> mockPaymentGateway.cancelIntent(nonExistentIntentId))
                   .doesNotThrowAnyException();
-
-            assertThat(intentStore.findByPaymentIntentId(nonExistentIntentId)).isEmpty();
         }
     }
 }

@@ -6,7 +6,7 @@ import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEven
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
-import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.support.WithKafka;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
