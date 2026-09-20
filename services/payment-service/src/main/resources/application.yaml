@@ -79,5 +79,8 @@ orderflow:
   kafka:
     topics:
       payment-commands: orderflow.payment.commands
+
   mock-psp:
     simulate-outage: false
+    webhook-url: ${WEBHOOK_URL:http://localhost:8086/webhooks/stripe}
+    failure-rate: 0.0
