@@ -1,4 +1,4 @@
-package com.echcherqaoui.orderflow.payment.exception.domain;
+package com.echcherqaoui.orderflow.payment.gateway;
 
 import com.echcherqaoui.orderflow.exception.core.BaseCustomException;
 

@@ -42,6 +42,7 @@ public class PaymentInitiatedEventHandler implements EventHandler<PaymentInitiat
         orderSagaService.handlePaymentInitiated(
               orderId,
               event.getPaymentIntentId(),
+              event.getClientSecret(),
               event.getMetadata().getMessageId()
         );
     }

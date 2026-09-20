@@ -73,6 +73,7 @@ class OrderSagaServiceTest {
     private final List<String> reservedItemIds = List.of(item1IdStr, item2IdStr);
     private final long totalPriceCents = 12500L;
     private final String triggerEventId = UUID.randomUUID().toString();
+    private final String clientSecret = "secret_12345";
 
     private CreateOrderRequest request;
     private InventoryServiceClient.ReservationResult reservation;
@@ -92,7 +93,7 @@ class OrderSagaServiceTest {
         void getOrder_notFound_throwsResourceNotFoundException() {
             given(orderRepository.findById(orderId)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(orderId, "pi_123", triggerEventId))
+            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(orderId, "pi_123", clientSecret, triggerEventId))
                   .isInstanceOf(ResourceNotFoundException.class);
 
             verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
@@ -197,7 +198,7 @@ class OrderSagaServiceTest {
 
             given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
 
-            orderSagaService.handlePaymentInitiated(orderId, paymentIntentId, triggerEventId);
+            orderSagaService.handlePaymentInitiated(orderId, paymentIntentId, clientSecret, triggerEventId);
 
             assertThat(existingOrder.getPaymentIntentId()).isEqualTo(paymentIntentId);
             assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.EXTENDING_INVENTORY);
@@ -343,7 +344,7 @@ class OrderSagaServiceTest {
             Order existingOrder = createOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
             given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
 
-            orderSagaService.handlePaymentInitiated(orderId, "pi_stale", triggerEventId);
+            orderSagaService.handlePaymentInitiated(orderId, "pi_stale", clientSecret, triggerEventId);
 
             assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.PAYMENT_SESSION_ACTIVE);
             then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());

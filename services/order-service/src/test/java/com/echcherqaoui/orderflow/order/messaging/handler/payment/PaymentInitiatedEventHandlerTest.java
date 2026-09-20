@@ -36,6 +36,7 @@ class PaymentInitiatedEventHandlerTest {
 
     private final UUID orderId = UUID.randomUUID();
     private final String paymentIntentId = "pi_123456789";
+    private final String paymentSecret = "secret_mock__123456789";
     private final String messageId = "msg-" + UUID.randomUUID();
     private final String signature = "sig-abc-123";
     private final Instant now = Instant.now();
@@ -54,6 +55,7 @@ class PaymentInitiatedEventHandlerTest {
         event = PaymentInitiatedEvent.newBuilder()
               .setMetadata(metadata)
               .setPaymentIntentId(paymentIntentId)
+              .setClientSecret(paymentSecret)
               .build();
     }
 
@@ -139,6 +141,7 @@ class PaymentInitiatedEventHandlerTest {
             then(orderSagaService).should().handlePaymentInitiated(
                   orderId,
                   paymentIntentId,
+                  paymentSecret,
                   messageId
             );
         }

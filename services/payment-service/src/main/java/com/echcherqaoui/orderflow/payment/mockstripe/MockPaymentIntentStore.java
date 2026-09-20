@@ -1,11 +1,13 @@
 package com.echcherqaoui.orderflow.payment.mockstripe;
 
-import org.jspecify.annotations.NonNull;
+import com.echcherqaoui.orderflow.payment.mockstripe.dto.TransitionResult;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 @Component
 public class MockPaymentIntentStore {
@@ -13,26 +15,36 @@ public class MockPaymentIntentStore {
     private final Map<String, MockPaymentIntent> intentsByPaymentIntentId = new ConcurrentHashMap<>();
     private final Map<String, MockPaymentIntent> intentsByIdempotencyKey = new ConcurrentHashMap<>();
 
-    public void save(@NonNull String idempotencyKey, @NonNull MockPaymentIntent intent) {
-        intentsByPaymentIntentId.put(intent.paymentIntentId(), intent);
-
-        if (!idempotencyKey.isBlank())
-            intentsByIdempotencyKey.put(idempotencyKey, intent);
+    public MockPaymentIntent computeIfAbsent(@lombok.NonNull String idempotencyKey, long totalAmountCents) {
+        return intentsByIdempotencyKey.computeIfAbsent(idempotencyKey, key -> {
+            MockPaymentIntent newIntent = MockPaymentIntent.create(totalAmountCents);
+            intentsByPaymentIntentId.put(newIntent.paymentIntentId(), newIntent);
+            return newIntent;
+        });
     }
 
-    public Optional<MockPaymentIntent> findByIdempotencyKey(@NonNull String idempotencyKey) {
-        return Optional.ofNullable(intentsByIdempotencyKey.get(idempotencyKey));
+    public TransitionResult transitionIfPending(String paymentIntentId,
+                                                UnaryOperator<MockPaymentIntent> transition) {
+        AtomicBoolean applied = new AtomicBoolean(false);
+
+        BiFunction<String, MockPaymentIntent, MockPaymentIntent> applyTransitionIfPending = (id, current) -> {
+            if (current.status() != MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD) return current;
+
+            applied.set(true);
+            return transition.apply(current);
+        };
+
+        MockPaymentIntent result = intentsByPaymentIntentId.computeIfPresent(paymentIntentId, applyTransitionIfPending);
+
+        return new TransitionResult(result, applied.get());
     }
 
-    public Optional<MockPaymentIntent> findByPaymentIntentId(@NonNull String paymentIntentId) {
-        return Optional.ofNullable(intentsByPaymentIntentId.get(paymentIntentId));
-    }
+    public void remove(@lombok.NonNull String paymentIntentId) {
+        BiFunction<String, MockPaymentIntent, MockPaymentIntent> removeFromBothMaps = (id, intent) -> {
+            intentsByIdempotencyKey.values().removeIf(i -> i.paymentIntentId().equals(paymentIntentId));
+            return null;
+        };
 
-    public void remove(@NonNull String paymentIntentId) {
-        MockPaymentIntent removed = intentsByPaymentIntentId.remove(paymentIntentId);
-
-        if (removed != null)
-            intentsByIdempotencyKey.values()
-                  .removeIf(intent -> intent.paymentIntentId().equals(paymentIntentId));
+        intentsByPaymentIntentId.computeIfPresent(paymentIntentId, removeFromBothMaps);
     }
 }

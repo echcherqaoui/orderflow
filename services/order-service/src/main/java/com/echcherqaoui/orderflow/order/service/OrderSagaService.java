@@ -130,6 +130,7 @@ public class OrderSagaService {
     @Transactional
     public void handlePaymentInitiated(@lombok.NonNull UUID orderId,
                                        @lombok.NonNull String paymentIntentId,
+                                       @lombok.NonNull String clientSecret,
                                        @lombok.NonNull String triggerEventId) {
         Order order = getOrder(orderId);
         if (isStaleOrDuplicate(order, INITIALIZING_PAYMENT, "PaymentInitiatedEvent")) return;
@@ -147,7 +148,8 @@ public class OrderSagaService {
         );
 
         outboxWriter.publishExtendReservationCommand(orderId, triggerEventId, order.getCartId());
-        eventPublisher.publishEvent(new OrderPaymentSessionActiveEvent(orderId, paymentIntentId));
+
+        eventPublisher.publishEvent(new OrderPaymentSessionActiveEvent(orderId, paymentIntentId, clientSecret));
     }
 
     @Transactional

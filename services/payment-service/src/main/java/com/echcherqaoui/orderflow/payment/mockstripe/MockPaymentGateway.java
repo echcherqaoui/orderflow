@@ -1,12 +1,12 @@
 package com.echcherqaoui.orderflow.payment.mockstripe;
 
-import com.echcherqaoui.orderflow.payment.dto.CreatePaymentIntentResponse;
-import com.echcherqaoui.orderflow.payment.exception.domain.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
 
@@ -18,30 +18,18 @@ public class MockPaymentGateway implements PaymentGateway {
 
     private final MockPaymentIntentStore intentStore;
 
-    @Value("${orderflow.mock-psp.simulate-outage:false}")
-    private boolean simulatePspOutage;
+    private final MockPspProperties mockPspProperties;
 
     @Override
     public CreatePaymentIntentResponse createIntent(@NonNull String idempotencyKey, long totalAmountCents) {
-        if (simulatePspOutage) {
+        if (mockPspProperties.isSimulateOutage()) {
             log.warn("Mock PSP simulated outage triggered for idempotencyKey: {}", idempotencyKey);
             throw new PaymentGatewayTransientException();
         }
 
-        return intentStore.findByIdempotencyKey(idempotencyKey)
-              .map(existing -> new CreatePaymentIntentResponse(
-                    existing.paymentIntentId(),
-                    existing.clientSecret()
-              )).orElseGet(() -> {
-                  MockPaymentIntent newIntent = MockPaymentIntent.create(totalAmountCents);
+        MockPaymentIntent intent = intentStore.computeIfAbsent(idempotencyKey, totalAmountCents);
 
-                  intentStore.save(idempotencyKey, newIntent);
-
-                  return new CreatePaymentIntentResponse(
-                        newIntent.paymentIntentId(),
-                        newIntent.clientSecret()
-                  );
-              });
+        return new CreatePaymentIntentResponse(intent.paymentIntentId(), intent.clientSecret());
     }
 
     @Override
