@@ -1,7 +1,7 @@
 package com.echcherqaoui.orderflow.order.messaging.handler.payment;
 
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
-import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.service.OrderSagaService;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Timestamp;
@@ -18,11 +18,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
-class PaymentInitializationFailedEventHandlerTest {
+class PaymentFailedEventHandlerTest {
 
     @Mock
     private OrderSagaService orderSagaService;
@@ -31,15 +32,16 @@ class PaymentInitializationFailedEventHandlerTest {
     private SignatureService signatureService;
 
     @InjectMocks
-    private PaymentInitializationFailedEventHandler eventHandler;
+    private PaymentFailedEventHandler eventHandler;
 
     private final UUID orderId = UUID.randomUUID();
-    private final String reason = "CARD_DECLINED";
+    private final String paymentIntentId = "pi_123456789";
+    private final String failureReason = "INSUFFICIENT_FUNDS";
     private final String messageId = "msg-" + UUID.randomUUID();
     private final String signature = "sig-abc-123";
     private final Instant now = Instant.now();
 
-    private PaymentInitializationFailedEvent event;
+    private PaymentFailedEvent event;
 
     @BeforeEach
     void setUp() {
@@ -50,9 +52,10 @@ class PaymentInitializationFailedEventHandlerTest {
               .setOccurredAt(Timestamp.newBuilder().setSeconds(now.getEpochSecond()).build())
               .build();
 
-        event = PaymentInitializationFailedEvent.newBuilder()
+        event = PaymentFailedEvent.newBuilder()
               .setMetadata(metadata)
-              .setFailureReason(reason)
+              .setPaymentIntentId(paymentIntentId)
+              .setFailureReason(failureReason)
               .build();
     }
 
@@ -64,7 +67,7 @@ class PaymentInitializationFailedEventHandlerTest {
         @DisplayName("returns correct protobuf descriptor full name")
         void getDescriptorFullName_returnsExpectedDescriptor() {
             String descriptor = eventHandler.getDescriptorFullName();
-            assertThat(descriptor).isEqualTo(PaymentInitializationFailedEvent.getDescriptor().getFullName());
+            assertThat(descriptor).isEqualTo(PaymentFailedEvent.getDescriptor().getFullName());
         }
     }
 
@@ -73,14 +76,15 @@ class PaymentInitializationFailedEventHandlerTest {
     class IsSignatureValid {
 
         @Test
-        @DisplayName("valid signature delegates to signature service and returns true")
+        @DisplayName("valid signature delegates to signature service with correct parameter order and returns true")
         void isSignatureValid_validSignature_returnsTrue() {
             given(signatureService.verify(
                   signature,
                   messageId,
                   orderId.toString(),
-                  reason,
-                  String.valueOf(now.getEpochSecond())
+                  String.valueOf(now.getEpochSecond()),
+                  paymentIntentId,
+                  failureReason
             )).willReturn(true);
 
             boolean isValid = eventHandler.isSignatureValid(event, signatureService);
@@ -90,8 +94,9 @@ class PaymentInitializationFailedEventHandlerTest {
                   signature,
                   messageId,
                   orderId.toString(),
-                  reason,
-                  String.valueOf(now.getEpochSecond())
+                  String.valueOf(now.getEpochSecond()),
+                  paymentIntentId,
+                  failureReason
             );
         }
 
@@ -102,13 +107,28 @@ class PaymentInitializationFailedEventHandlerTest {
                   signature,
                   messageId,
                   orderId.toString(),
-                  reason,
-                  String.valueOf(now.getEpochSecond())
+                  String.valueOf(now.getEpochSecond()),
+                  paymentIntentId,
+                  failureReason
             )).willReturn(false);
 
             boolean isValid = eventHandler.isSignatureValid(event, signatureService);
 
             assertThat(isValid).isFalse();
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void isSignatureValid_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> eventHandler.isSignatureValid(null, signatureService))
+                  .isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @DisplayName("null signatureService throws NullPointerException")
+        void isSignatureValid_nullSignatureService_throwsNullPointerException() {
+            assertThatThrownBy(() -> eventHandler.isSignatureValid(event, null))
+                  .isInstanceOf(NullPointerException.class);
         }
     }
 
@@ -121,11 +141,18 @@ class PaymentInitializationFailedEventHandlerTest {
         void handle_success_delegatesToOrderSagaService() {
             eventHandler.handle(event);
 
-            then(orderSagaService).should().handlePaymentInitializationFailed(
+            then(orderSagaService).should().handlePaymentFailed(
                   orderId,
-                  reason,
+                  failureReason,
                   messageId
             );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handle_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> eventHandler.handle(null))
+                  .isInstanceOf(NullPointerException.class);
         }
     }
 }

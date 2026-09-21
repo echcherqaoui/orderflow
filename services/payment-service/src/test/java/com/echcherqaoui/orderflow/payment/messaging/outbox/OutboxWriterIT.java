@@ -176,7 +176,7 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
                 PaymentInitializationFailedEvent decoded = deserializer.deserialize("orderflow.payment.events", event.getPayload());
 
                 // Payload assertions
-                assertThat(decoded.getReason()).isEqualTo(reason);
+                assertThat(decoded.getFailureReason()).isEqualTo(reason);
 
                 // Metadata assertions
                 assertThat(decoded.getMetadata().getMessageId()).isNotBlank();

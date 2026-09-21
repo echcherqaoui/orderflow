@@ -105,19 +105,19 @@ public class OutboxWriter {
 
     @Transactional(propagation = MANDATORY)
     public void publishPaymentInitializationFailedEvent(@lombok.NonNull UUID orderId,
-                                                        @lombok.NonNull String reason,
+                                                        @lombok.NonNull String failureReason,
                                                         String causationId) {
         String orderIdStr = orderId.toString();
 
         MessageMetadata metadata = createMetadata(
               orderIdStr,
               causationId,
-              reason
+              failureReason
         );
 
         PaymentInitializationFailedEvent event = PaymentInitializationFailedEvent.newBuilder()
               .setMetadata(metadata)
-              .setReason(reason)
+              .setFailureReason(failureReason)
               .build();
 
         persist(event, orderIdStr);

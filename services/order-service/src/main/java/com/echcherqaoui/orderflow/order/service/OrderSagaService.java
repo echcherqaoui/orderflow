@@ -69,6 +69,32 @@ public class OrderSagaService {
         return false;
     }
 
+    private void initiateInventoryCompensation(UUID orderId,
+                                               SagaStep expectedStep,
+                                               String triggerEventName,
+                                               String reason,
+                                               String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, expectedStep, triggerEventName)) return;
+
+        order.setStatus(OrderStatus.CANCELLING)
+              .setCancellationReason(PAYMENT_FAILED)
+              .setCurrentSagaStep(REVERSING_INVENTORY);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.failed(expectedStep, Map.of("reason", reason)),
+              SagaStepLogger.StepLog.started(REVERSING_INVENTORY, Map.of("reason", reason)),
+              triggerEventName,
+              triggerEventId
+        );
+
+        outboxWriter.publishReleaseInventoryCommand(orderId, triggerEventId, order.getCartId());
+        eventPublisher.publishEvent(new OrderPaymentFailedEvent(orderId, reason));
+    }
+
     // OrderSagaService
     @Transactional
     public void handleOrderReserved(@lombok.NonNull UUID orderId,
@@ -103,28 +129,31 @@ public class OrderSagaService {
     }
 
     @Transactional
-    public void handlePaymentInitializationFailed(@lombok.NonNull UUID orderId,
-                                                  @lombok.NonNull String reason,
-                                                  @lombok.NonNull String triggerEventId) {
-        Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, INITIALIZING_PAYMENT, "PaymentInitializationFailedEvent")) return;
-
-        order.setStatus(OrderStatus.CANCELLING)
-              .setCancellationReason(PAYMENT_FAILED)
-              .setCurrentSagaStep(REVERSING_INVENTORY);
-
-        orderRepository.save(order);
-
-        sagaStepLogger.logTransition(
+    public void handlePaymentFailed(@lombok.NonNull UUID orderId,
+                                    @lombok.NonNull String reason,
+                                    @lombok.NonNull String triggerEventId) {
+        // Handle payment charge failure from active payment state
+        initiateInventoryCompensation(
               orderId,
-              SagaStepLogger.StepLog.failed(INITIALIZING_PAYMENT, Map.of("reason", reason)),
-              SagaStepLogger.StepLog.started(REVERSING_INVENTORY, Map.of("reason", reason)),
-              "PaymentInitializationFailedEvent",
+              PAYMENT_SESSION_ACTIVE,
+              "PaymentFailedEvent",
+              reason,
               triggerEventId
         );
+    }
 
-        outboxWriter.publishReleaseInventoryCommand(orderId, triggerEventId, order.getCartId());
-        eventPublisher.publishEvent(new OrderPaymentFailedEvent(orderId, reason));
+    @Transactional
+    public void handlePaymentInitializationFailed(@lombok.NonNull UUID orderId,
+                                                  @lombok.NonNull String failureReason,
+                                                  @lombok.NonNull String triggerEventId) {
+        // Handle failure during intent creation
+        initiateInventoryCompensation(
+              orderId,
+              INITIALIZING_PAYMENT,
+              "PaymentInitializationFailedEvent",
+              failureReason,
+              triggerEventId
+        );
     }
 
     @Transactional
@@ -161,6 +190,7 @@ public class OrderSagaService {
 
         order.setStatus(OrderStatus.CANCELLED)
               .setCurrentSagaStep(SagaStep.REVERSED);
+
         orderRepository.save(order);
 
         sagaStepLogger.logTransition(
@@ -249,4 +279,6 @@ public class OrderSagaService {
         // Outbox: Publish terminal OrderCancelledEvent for downstream analytics/audit
         outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
     }
+
+
 }

@@ -183,7 +183,7 @@ class OutboxWriterTest {
     @DisplayName("publishPaymentInitializationFailedEvent()")
     class PublishPaymentInitializationFailedEvent {
 
-        private final String reason = "PSP connection failed: HTTP 503 Service Unavailable.";
+        private final String failureReason = "PSP connection failed: HTTP 503 Service Unavailable.";
 
         @Test
         @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
@@ -193,19 +193,19 @@ class OutboxWriterTest {
             given(outboxEventRepository.save(any(OutboxEvent.class)))
                   .willAnswer(invocation -> invocation.getArgument(0));
 
-            outboxWriter.publishPaymentInitializationFailedEvent(orderId, reason, causationId);
+            outboxWriter.publishPaymentInitializationFailedEvent(orderId, failureReason, causationId);
 
             then(signatureService).should().sign(signatureParamsCaptor.capture());
             String[] capturedParams = signatureParamsCaptor.getValue();
 
             assertThat(capturedParams).hasSize(4);
             assertThat(capturedParams[1]).isEqualTo(orderId.toString());
-            assertThat(capturedParams[3]).isEqualTo(reason);
+            assertThat(capturedParams[3]).isEqualTo(failureReason);
 
             then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
             PaymentInitializationFailedEvent event = (PaymentInitializationFailedEvent) messageCaptor.getValue();
 
-            assertThat(event.getReason()).isEqualTo(reason);
+            assertThat(event.getFailureReason()).isEqualTo(failureReason);
             assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
             assertThat(event.getMetadata().getCausationId()).isEqualTo(causationId);
 
@@ -220,7 +220,7 @@ class OutboxWriterTest {
         @Test
         @DisplayName("null arguments throw NullPointerException")
         void publishPaymentInitializationFailedEvent_nullArguments_throwsException() {
-            assertThatThrownBy(() -> outboxWriter.publishPaymentInitializationFailedEvent(null, reason, causationId))
+            assertThatThrownBy(() -> outboxWriter.publishPaymentInitializationFailedEvent(null, failureReason, causationId))
                   .isInstanceOf(NullPointerException.class);
 
             assertThatThrownBy(() -> outboxWriter.publishPaymentInitializationFailedEvent(orderId, null, causationId))
