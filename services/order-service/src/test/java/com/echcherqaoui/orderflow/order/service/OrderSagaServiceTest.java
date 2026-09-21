@@ -84,20 +84,14 @@ class OrderSagaServiceTest {
         reservation = new InventoryServiceClient.ReservationResult(reservedItemIds, totalPriceCents);
     }
 
-    @Nested
-    @DisplayName("Order Lookup")
-    class OrderLookup {
-
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void getOrder_notFound_throwsResourceNotFoundException() {
-            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
-
-            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(orderId, "pi_123", clientSecret, triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
-
-            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
-        }
+    private Order createOrder(SagaStep step, OrderStatus status) {
+        return new Order()
+              .setId(orderId)
+              .setUserId(userId)
+              .setCartId(cartId)
+              .setStatus(status)
+              .setCurrentSagaStep(step)
+              .setTotalAmountCents(totalPriceCents);
     }
 
     @Nested
@@ -187,11 +181,11 @@ class OrderSagaServiceTest {
     }
 
     @Nested
-    @DisplayName("Saga Step Transitions")
-    class SagaStepTransitions {
+    @DisplayName("handlePaymentInitiated()")
+    class HandlePaymentInitiated {
 
         @Test
-        @DisplayName("handlePaymentInitiated updates paymentIntentId, sets step EXTENDING_INVENTORY, publishes command and application event")
+        @DisplayName("valid step INITIALIZING_PAYMENT: updates paymentIntentId, sets step EXTENDING_INVENTORY, publishes command and application event")
         void handlePaymentInitiated_validStep_updatesStateAndPublishesOutboxAndEvent() {
             Order existingOrder = createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
             String paymentIntentId = "pi_99887766";
@@ -215,7 +209,36 @@ class OrderSagaServiceTest {
         }
 
         @Test
-        @DisplayName("handlePaymentInitializationFailed sets status CANCELLING, step REVERSING_INVENTORY, publishes release command and application event")
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handlePaymentInitiated_staleStep_ignoresEvent() {
+            Order existingOrder = createOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handlePaymentInitiated(orderId, "pi_stale", clientSecret, triggerEventId);
+
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.PAYMENT_SESSION_ACTIVE);
+            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("missing order: throws ResourceNotFoundException and performs no side effects")
+        void handlePaymentInitiated_notFound_throwsResourceNotFoundException() {
+            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(orderId, "pi_123", clientSecret, triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+
+            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
+        }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentInitializationFailed()")
+    class HandlePaymentInitializationFailed {
+
+        @Test
+        @DisplayName("valid step INITIALIZING_PAYMENT: sets status CANCELLING, step REVERSING_INVENTORY, publishes release command and application event")
         void handlePaymentInitializationFailed_validStep_updatesStatusAndPublishesReleaseAndEvent() {
             Order existingOrder = createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
             given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
@@ -236,9 +259,14 @@ class OrderSagaServiceTest {
             then(outboxWriter).should().publishReleaseInventoryCommand(eq(orderId), anyString(), eq(cartId));
             then(eventPublisher).should().publishEvent(any(OrderPaymentFailedEvent.class));
         }
+    }
+
+    @Nested
+    @DisplayName("handleReservationExtended()")
+    class HandleReservationExtended {
 
         @Test
-        @DisplayName("handleReservationExtended updates step to PAYMENT_SESSION_ACTIVE and publishes application event")
+        @DisplayName("valid step EXTENDING_INVENTORY: updates step to PAYMENT_SESSION_ACTIVE and publishes application event")
         void handleReservationExtended_validStep_updatesSagaStepAndPublishesEvent() {
             Order existingOrder = createOrder(SagaStep.EXTENDING_INVENTORY, OrderStatus.PENDING);
             given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
@@ -257,9 +285,14 @@ class OrderSagaServiceTest {
             verifyNoInteractions(outboxWriter);
             then(eventPublisher).should().publishEvent(any(ReservationExtendedOrderEvent.class));
         }
+    }
+
+    @Nested
+    @DisplayName("handleReservationExtensionFailed()")
+    class HandleReservationExtensionFailed {
 
         @Test
-        @DisplayName("handleReservationExtensionFailed sets status CANCELLING, step REVERSING_PAYMENT, publishes cancel payment command and application event")
+        @DisplayName("valid step EXTENDING_INVENTORY: sets status CANCELLING, step REVERSING_PAYMENT, publishes cancel payment command and application event")
         void handleReservationExtensionFailed_validStep_updatesStatusAndPublishesCancelPaymentAndEvent() {
             Order existingOrder = createOrder(SagaStep.EXTENDING_INVENTORY, OrderStatus.PENDING);
             existingOrder.setPaymentIntentId("pi_12345");
@@ -287,9 +320,72 @@ class OrderSagaServiceTest {
             then(outboxWriter).should().publishCancelPaymentCommand(eq(orderId), anyString(), eq("pi_12345"), anyString());
             then(eventPublisher).should().publishEvent(any(ReservationExtensionFailedOrderEvent.class));
         }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentFailed()")
+    class HandlePaymentFailed {
 
         @Test
-        @DisplayName("handleInventoryReleased updates status CANCELLED, step REVERSED, and publishes terminal outbox event")
+        @DisplayName("valid step PAYMENT_SESSION_ACTIVE: updates order status to CANCELLING, step to REVERSING_INVENTORY, and publishes release command + event")
+        void handlePaymentFailed_validStep_initiatesInventoryCompensation() {
+            Order order = createOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            String reason = "INSUFFICIENT_FUNDS";
+
+            orderSagaService.handlePaymentFailed(orderId, reason, triggerEventId);
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(order.getCancellationReason()).isEqualTo(CancellationReason.PAYMENT_FAILED);
+            assertThat(order.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_INVENTORY);
+
+            then(orderRepository).should().save(order);
+            then(sagaStepLogger).should().logTransition(
+                  eq(orderId),
+                  argThat(closed -> closed != null && closed.step() == SagaStep.PAYMENT_SESSION_ACTIVE && closed.status() == SagaStepStatus.FAILED),
+                  argThat(opened -> opened != null && opened.step() == SagaStep.REVERSING_INVENTORY && opened.status() == SagaStepStatus.STARTED),
+                  eq("PaymentFailedEvent"),
+                  eq(triggerEventId)
+            );
+            then(outboxWriter).should().publishReleaseInventoryCommand(orderId, triggerEventId, cartId);
+            then(eventPublisher).should().publishEvent(new OrderPaymentFailedEvent(orderId, reason));
+        }
+
+        @Test
+        @DisplayName("stale or duplicate step: ignores event and performs no state updates or side effects")
+        void handlePaymentFailed_staleStep_ignoresEventAndAborts() {
+            Order order = createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            orderSagaService.handlePaymentFailed(orderId, "CARD_DECLINED", triggerEventId);
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
+            assertThat(order.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
+
+            then(orderRepository).should(never()).save(any());
+            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("missing order: throws ResourceNotFoundException and performs no side effects")
+        void handlePaymentFailed_orderNotFound_throwsResourceNotFoundException() {
+            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentFailed(orderId, "CARD_DECLINED", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+
+            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
+        }
+    }
+
+    @Nested
+    @DisplayName("handleInventoryReleased()")
+    class HandleInventoryReleased {
+
+        @Test
+        @DisplayName("valid step REVERSING_INVENTORY: updates status CANCELLED, step REVERSED, and publishes terminal outbox event")
         void handleInventoryReleased_validStep_completesCancellationAndPublishesOutbox() {
             Order existingOrder = createOrder(SagaStep.REVERSING_INVENTORY, OrderStatus.CANCELLING);
             existingOrder.setCancellationReason(CancellationReason.PAYMENT_FAILED);
@@ -309,9 +405,14 @@ class OrderSagaServiceTest {
             );
             then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.PAYMENT_FAILED.name());
         }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentCancelled()")
+    class HandlePaymentCancelled {
 
         @Test
-        @DisplayName("handlePaymentCancelled updates status CANCELLED, step REVERSED, and publishes terminal outbox event")
+        @DisplayName("valid step REVERSING_PAYMENT: updates status CANCELLED, step REVERSED, and publishes terminal outbox event")
         void handlePaymentCancelled_validStep_completesCancellationAndPublishesOutbox() {
             Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
             existingOrder.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
@@ -332,24 +433,6 @@ class OrderSagaServiceTest {
             );
             then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.RESERVATION_EXPIRED.name());
         }
-    }
-
-    @Nested
-    @DisplayName("Idempotency Guard")
-    class IdempotencyGuard {
-
-        @Test
-        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
-        void handlePaymentInitiated_staleStep_ignoresEvent() {
-            Order existingOrder = createOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
-            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
-
-            orderSagaService.handlePaymentInitiated(orderId, "pi_stale", clientSecret, triggerEventId);
-
-            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.PAYMENT_SESSION_ACTIVE);
-            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
-            verifyNoInteractions(outboxWriter, eventPublisher);
-        }
 
         @Test
         @DisplayName("stale PaymentCancelledEvent for unexpected step is ignored")
@@ -363,15 +446,5 @@ class OrderSagaServiceTest {
             then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
             verifyNoInteractions(outboxWriter, eventPublisher);
         }
-    }
-
-    private Order createOrder(SagaStep step, OrderStatus status) {
-        return new Order()
-              .setId(orderId)
-              .setUserId(userId)
-              .setCartId(cartId)
-              .setStatus(status)
-              .setCurrentSagaStep(step)
-              .setTotalAmountCents(totalPriceCents);
     }
 }

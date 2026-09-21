@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
 import com.google.protobuf.Message;
@@ -32,5 +33,6 @@ public class SchemaRegistryWarmer {
         warm(PaymentInitiatedEvent.getDefaultInstance());
         warm(PaymentInitializationFailedEvent.getDefaultInstance());
         warm(PaymentCancelledEvent.getDefaultInstance());
+        warm(PaymentFailedEvent.getDefaultInstance());
     }
 }

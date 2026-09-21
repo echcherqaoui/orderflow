@@ -66,8 +66,6 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 
 ## 🔄 Checkout Saga Architecture & Lifecycle
 
-## 🔄 Checkout Saga Architecture & Lifecycle
-
 ### Happy Path Workflow
 1. **Reserve Stock:** `Order Service` synchronously calls `Inventory Service` via gRPC to lock stock.
 2. **Initialize Payment:** `Order Service` requests `Payment Service` to create a payment intent/session.
@@ -102,7 +100,8 @@ Acts as the distributed Saga Orchestrator:
 
 ### Payment Service
 Acts as the single source of truth for payment lifecycle processing:
-* **Intent Execution & Gateway Abstraction:** Processes payment intent creation (`paymentIntentId`) and async charge commands (`ChargePaymentCommandHandler`) via provider interfaces (`PaymentGateway`, `MockPaymentGateway`).
+* **Intent Execution & Gateway Abstraction:** Processes payment intent creation (`paymentIntentId`), confirmation, and async charge commands (`ChargePaymentCommandHandler`) via provider interfaces (`PaymentGateway`, `MockPaymentGateway`).
+* **Embedded PSP Simulator (MockStripe):** Exposes `/mock-stripe/payment_intents/{id}/confirm` to simulate card outcomes (`succeeded`, `card_declined`, `insufficient_funds`) and trigger async webhook dispatches with retries.
 * **Payload Integrity & Verification:** Validates webhook signatures using HMAC verification (`HmacSignatureService`).
 * **Outbox & Resilient Messaging:** Emits `PaymentInitiatedEvent` and payment outcome events atomically using the Transactional Outbox pattern, supported by dedicated Kafka retry topics and dead-letter queues (`KafkaRetryConfig`).
 
