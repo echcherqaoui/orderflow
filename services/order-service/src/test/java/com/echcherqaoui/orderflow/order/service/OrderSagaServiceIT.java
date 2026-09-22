@@ -443,6 +443,61 @@ class OrderSagaServiceIT implements WithPostgres {
     }
 
     @Nested
+    @DisplayName("handlePaymentCharged()")
+    class HandlePaymentCharged {
+
+        @Test
+        @Transactional
+        @DisplayName("valid step PAYMENT_SESSION_ACTIVE updates step to CONFIRMING_INVENTORY and writes ConfirmReservationCommand outbox row")
+        void handlePaymentCharged_validStep_updatesSagaStepAndPublishesConfirmCommand() {
+            when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
+                  .thenReturn(new byte[]{0, 1, 2});
+
+            Order order = createAndPersistOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
+            String paymentIntentId = "pi_99887766";
+            String triggerEventId = UUID.randomUUID().toString();
+
+            orderSagaService.handlePaymentCharged(order.getId(), paymentIntentId, triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.CONFIRMING_INVENTORY);
+
+            List<OrderSagaHistory> history = findSagaHistory(order.getId());
+            assertThat(history).hasSize(2);
+            assertThat(history.get(0).getStep()).isEqualTo(SagaStep.PAYMENT_SESSION_ACTIVE);
+            assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
+            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.CONFIRMING_INVENTORY);
+            assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.STARTED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(1);
+            assertThat(outboxRows.getFirst().getAggregateType()).isEqualTo("inventory.commands");
+            assertThat(outboxRows.getFirst().getEventType()).isEqualTo("ConfirmReservationCommand");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale PaymentChargedEvent for unexpected saga step is ignored without side effects")
+        void handlePaymentCharged_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            int initialHistorySize = findSagaHistory(order.getId()).size();
+
+            orderSagaService.handlePaymentCharged(order.getId(), "pi_stale", UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
+            assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
+            assertThat(findOutboxRows(order.getId())).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("handlePaymentCancelled()")
     class HandlePaymentCancelled {
 

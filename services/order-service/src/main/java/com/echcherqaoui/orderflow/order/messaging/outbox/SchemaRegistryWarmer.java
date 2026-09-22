@@ -1,5 +1,6 @@
 package com.echcherqaoui.orderflow.order.messaging.outbox;
 
+import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
@@ -18,6 +19,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class SchemaRegistryWarmer {
 
+    private static final String PAYMENT_COMMANDS_TOPIC = "orderflow.payment.commands";
+    private static final String INVENTORY_COMMANDS_TOPIC = "orderflow.inventory.commands";
+    private static final String ORDER_EVENTS_TOPIC = "orderflow.order.events";
+
     private final KafkaProtobufSerializer<Message> serializer;
 
     private void warm(String topic, Message message) {
@@ -31,12 +36,13 @@ public class SchemaRegistryWarmer {
 
     @EventListener(ApplicationReadyEvent.class)
     public void warmUp() {
-        warm("orderflow.payment.commands", ChargePaymentCommand.getDefaultInstance());
-        warm("orderflow.payment.commands", CancelPaymentCommand.getDefaultInstance());
+        warm(PAYMENT_COMMANDS_TOPIC, ChargePaymentCommand.getDefaultInstance());
+        warm(PAYMENT_COMMANDS_TOPIC, CancelPaymentCommand.getDefaultInstance());
 
-        warm("orderflow.inventory.commands", ReleaseInventoryCommand.getDefaultInstance());
-        warm("orderflow.inventory.commands", ExtendReservationCommand.getDefaultInstance());
+        warm(INVENTORY_COMMANDS_TOPIC, ReleaseInventoryCommand.getDefaultInstance());
+        warm(INVENTORY_COMMANDS_TOPIC, ExtendReservationCommand.getDefaultInstance());
+        warm(INVENTORY_COMMANDS_TOPIC, ConfirmReservationCommand.getDefaultInstance());
 
-        warm("orderflow.order.events", OrderCancelledIntegrationEvent.getDefaultInstance());
+        warm(ORDER_EVENTS_TOPIC, OrderCancelledIntegrationEvent.getDefaultInstance());
     }
 }
