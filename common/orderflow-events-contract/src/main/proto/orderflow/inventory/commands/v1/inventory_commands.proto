@@ -17,3 +17,9 @@ message ExtendReservationCommand {
   string cart_id = 2;
   string order_id = 3;
 }
+
+message ConfirmReservationCommand {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string cart_id = 3;
+}

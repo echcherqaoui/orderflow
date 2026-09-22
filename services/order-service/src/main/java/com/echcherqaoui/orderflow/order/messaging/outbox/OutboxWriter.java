@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.order.messaging.outbox;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
+import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
@@ -175,5 +176,22 @@ public class OutboxWriter {
               .build();
 
             persist(event, orderIdStr, ORDER_EVENTS_AGGREGATE);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishConfirmReservationCommand(@lombok.NonNull UUID orderId,
+                                                 @lombok.NonNull String triggerEventId,
+                                                 @lombok.NonNull String cartId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, cartId);
+
+        ConfirmReservationCommand command = ConfirmReservationCommand.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setCartId(cartId)
+              .build();
+
+        persist(command, orderIdStr, INVENTORY_COMMANDS_AGGREGATE);
     }
 }

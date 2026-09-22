@@ -381,6 +381,58 @@ class OrderSagaServiceTest {
     }
 
     @Nested
+    @DisplayName("handlePaymentCharged()")
+    class HandlePaymentCharged {
+
+        @Test
+        @DisplayName("valid step PAYMENT_SESSION_ACTIVE: updates step to CONFIRMING_INVENTORY, logs saga transition, and publishes confirm command")
+        void handlePaymentCharged_validStep_updatesSagaStepAndPublishesConfirmCommand() {
+            Order existingOrder = createOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
+            String paymentIntentId = "pi_99887766";
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handlePaymentCharged(orderId, paymentIntentId, triggerEventId);
+
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.CONFIRMING_INVENTORY);
+
+            then(orderRepository).should().save(existingOrder);
+            then(sagaStepLogger).should().logTransition(
+                  eq(orderId),
+                  argThat(closed -> closed != null && closed.step() == SagaStep.PAYMENT_SESSION_ACTIVE && closed.status() == SagaStepStatus.COMPLETED),
+                  argThat(opened -> opened != null && opened.step() == SagaStep.CONFIRMING_INVENTORY && opened.status() == SagaStepStatus.STARTED),
+                  eq("PaymentChargedEvent"),
+                  eq(triggerEventId)
+            );
+            then(outboxWriter).should().publishConfirmReservationCommand(orderId, triggerEventId, cartId);
+        }
+
+        @Test
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handlePaymentCharged_staleStep_ignoresEvent() {
+            Order existingOrder = createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handlePaymentCharged(orderId, "pi_stale", triggerEventId);
+
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
+            then(orderRepository).should(never()).save(any());
+            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("missing order: throws ResourceNotFoundException and performs no side effects")
+        void handlePaymentCharged_notFound_throwsResourceNotFoundException() {
+            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentCharged(orderId, "pi_123", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+
+            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
+        }
+    }
+
+    @Nested
     @DisplayName("handleInventoryReleased()")
     class HandleInventoryReleased {
 

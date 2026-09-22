@@ -26,6 +26,7 @@ import java.util.UUID;
 import static com.echcherqaoui.orderflow.order.exception.code.OrderErrorCode.ORDER_NOT_FOUND;
 import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.PAYMENT_FAILED;
 import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.RESERVATION_EXPIRED;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CONFIRMING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.EXTENDING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INITIALIZING_PAYMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INVENTORY_RESERVED;
@@ -253,6 +254,28 @@ public class OrderSagaService {
         eventPublisher.publishEvent(new ReservationExtendedOrderEvent(orderId, newExpiresAt));
     }
 
+
+    @Transactional
+    public void handlePaymentCharged(@lombok.NonNull UUID orderId,
+                                     @lombok.NonNull String paymentIntentId,
+                                     @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, PAYMENT_SESSION_ACTIVE, "PaymentChargedEvent")) return;
+
+        order.setCurrentSagaStep(CONFIRMING_INVENTORY);
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.completed(PAYMENT_SESSION_ACTIVE, Map.of("paymentIntentId", paymentIntentId)),
+              SagaStepLogger.StepLog.started(CONFIRMING_INVENTORY, Map.of("paymentIntentId", paymentIntentId)),
+              "PaymentChargedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishConfirmReservationCommand(orderId, triggerEventId, order.getCartId());
+    }
+
     @Transactional
     public void handlePaymentCancelled(@lombok.NonNull UUID orderId,
                                        String paymentIntentId,
@@ -279,6 +302,5 @@ public class OrderSagaService {
         // Outbox: Publish terminal OrderCancelledEvent for downstream analytics/audit
         outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
     }
-
 
 }
