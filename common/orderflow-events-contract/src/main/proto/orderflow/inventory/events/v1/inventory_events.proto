@@ -24,3 +24,15 @@ message ReservationExtensionFailedEvent {
   string cart_id = 2;
   string reason = 3;
 }
+
+message InventoryConfirmedEvent{
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string orderId = 2;
+  string cartId = 3;
+}
+
+message InventoryConfirmationFailedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string cart_id = 2;
+  string reason = 3;
+}
