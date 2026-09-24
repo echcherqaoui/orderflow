@@ -17,6 +17,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.inventory.model.ReservationStatus.CONFIRMED;
+import static com.echcherqaoui.orderflow.inventory.model.ReservationStatus.PENDING;
+
 @Repository
 public interface InventoryReservationRepository extends JpaRepository<InventoryReservation, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -64,4 +67,24 @@ public interface InventoryReservationRepository extends JpaRepository<InventoryR
                                        @Param("orderId") UUID orderId,
                                        @Param("cartId") String cartId,
                                        @Param("now") Instant now);
+
+    @Modifying
+    @Query("""
+        UPDATE InventoryReservation r
+        SET r.status = :confirmedStatus,
+            r.expiresAt = NULL
+        WHERE r.cartId = :cartId
+          AND r.status = :pendingStatus
+          AND r.expiresAt > :now
+    """)
+    int confirmActiveReservation(
+          @Param("cartId") String cartId,
+          @Param("confirmedStatus") ReservationStatus confirmedStatus,
+          @Param("pendingStatus") ReservationStatus pendingStatus,
+          @Param("now") Instant now
+    );
+
+    default int confirmActiveReservation(String cartId) {
+        return confirmActiveReservation(cartId, CONFIRMED, PENDING, Instant.now());
+    }
 }

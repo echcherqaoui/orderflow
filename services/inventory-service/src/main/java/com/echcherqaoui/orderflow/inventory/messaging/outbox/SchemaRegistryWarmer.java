@@ -1,5 +1,7 @@
 package com.echcherqaoui.orderflow.inventory.messaging.outbox;
 
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmationFailedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
@@ -32,5 +34,7 @@ public class SchemaRegistryWarmer {
         warm(ReservationExtendedEvent.getDefaultInstance());
         warm(ReservationExtensionFailedEvent.getDefaultInstance());
         warm(InventoryReleasedEvent.getDefaultInstance());
+        warm(InventoryConfirmedEvent.getDefaultInstance());
+        warm(InventoryConfirmationFailedEvent.getDefaultInstance());
     }
 }
