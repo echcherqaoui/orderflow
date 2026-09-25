@@ -330,4 +330,50 @@ class ReservationServiceIT implements WithPostgres {
             );
         }
     }
+
+    @Nested
+    @DisplayName("confirmReservation(String, UUID, String)")
+    class ConfirmReservation {
+
+        @Test
+        @DisplayName("confirming active reservation updates status to CONFIRMED and publishes confirmed outbox event")
+        void confirmReservation_activeReservation_confirmsAndPublishesEvent() {
+            reservationService.reserve(cartId, Set.of(item1.getId(), item2.getId()));
+
+            UUID orderUuid = UUID.randomUUID();
+            String messageId = "msg-confirm-123";
+
+            reservationService.confirmReservation(cartId, orderUuid, messageId);
+
+            List<InventoryReservation> confirmedReservations = transactionTemplate.execute(status ->
+                  reservationRepository.findByCartIdAndStatus(cartId, ReservationStatus.CONFIRMED)
+            );
+
+            assertThat(confirmedReservations).hasSize(2);
+            assertThat(fetchPending(cartId)).isEmpty();
+
+            verify(outboxWriter).publishInventoryConfirmedEvent(
+                  orderUuid,
+                  cartId,
+                  messageId
+            );
+        }
+
+        @Test
+        @DisplayName("confirming missing or expired reservation publishes confirmation failed outbox event")
+        void confirmReservation_missingOrExpiredReservation_publishesFailureEvent() {
+            String nonExistentCartId = "cart-non-existent";
+            UUID orderUuid = UUID.randomUUID();
+            String messageId = "msg-confirm-456";
+
+            reservationService.confirmReservation(nonExistentCartId, orderUuid, messageId);
+
+            verify(outboxWriter).publishInventoryConfirmationFailedEvent(
+                  orderUuid,
+                  nonExistentCartId,
+                  "RESERVATION_EXPIRED",
+                  messageId
+            );
+        }
+    }
 }

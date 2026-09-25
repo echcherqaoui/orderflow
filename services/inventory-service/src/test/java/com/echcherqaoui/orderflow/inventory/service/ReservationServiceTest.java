@@ -328,4 +328,40 @@ class ReservationServiceTest {
             );
         }
     }
+
+    @Nested
+    @DisplayName("confirmReservation(...)")
+    class ConfirmReservationMethod {
+
+        @Test
+        @DisplayName("Should confirm reservation and publish confirmed event when active reservation exists")
+        void confirmReservation_Success() {
+            UUID orderUuid = UUID.fromString(ORDER_ID);
+            when(reservationRepository.confirmActiveReservation(CART_ID)).thenReturn(1);
+
+            reservationService.confirmReservation(CART_ID, orderUuid, MESSAGE_ID);
+
+            verify(reservationRepository).confirmActiveReservation(CART_ID);
+            verify(outboxWriter).publishInventoryConfirmedEvent(orderUuid, CART_ID, MESSAGE_ID);
+            verify(outboxWriter, never()).publishInventoryConfirmationFailedEvent(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Should publish failure event when reservation is expired or missing")
+        void confirmReservation_ExpiredOrMissing_PublishesFailure() {
+            UUID orderUuid = UUID.fromString(ORDER_ID);
+            when(reservationRepository.confirmActiveReservation(CART_ID)).thenReturn(0);
+
+            reservationService.confirmReservation(CART_ID, orderUuid, MESSAGE_ID);
+
+            verify(reservationRepository).confirmActiveReservation(CART_ID);
+            verify(outboxWriter).publishInventoryConfirmationFailedEvent(
+                  orderUuid,
+                  CART_ID,
+                  "RESERVATION_EXPIRED",
+                  MESSAGE_ID
+            );
+            verify(outboxWriter, never()).publishInventoryConfirmedEvent(any(), any(), any());
+        }
+    }
 }

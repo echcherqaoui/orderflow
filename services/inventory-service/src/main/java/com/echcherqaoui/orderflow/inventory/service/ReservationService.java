@@ -33,6 +33,7 @@ public class ReservationService {
 
     private static final long DEFAULT_TTL_SECONDS = 60;
     private static final long EXTENDED_TTL_SECONDS = 15L * 60L;
+    private static final String FAILURE_REASON_EXPIRED = "RESERVATION_EXPIRED";
 
     private final InventoryReservationRepository reservationRepository;
     private final ItemRepository itemRepository;
@@ -137,7 +138,7 @@ public class ReservationService {
                   orderUuid,
                   messageId,
                   cartId,
-                  "RESERVATION_EXPIRED"
+                  FAILURE_REASON_EXPIRED
             );
 
             return;
@@ -200,5 +201,26 @@ public class ReservationService {
               correlationId,
               messageId
         );
+    }
+
+    @Transactional
+    public void confirmReservation(@lombok.NonNull String cartId,
+                                   @lombok.NonNull UUID orderId,
+                                   @lombok.NonNull String messageId) {
+
+        int updatedRows = reservationRepository.confirmActiveReservation(cartId);
+
+        if (updatedRows >= 1) {
+            log.info("Successfully confirmed inventory reservation for cart: {} (order: {})", cartId, orderId);
+            outboxWriter.publishInventoryConfirmedEvent(orderId, cartId, messageId);
+        } else {
+            log.warn("Failed to confirm reservation for cart: {} (order: {}). Reservation expired or missing.", cartId, orderId);
+            outboxWriter.publishInventoryConfirmationFailedEvent(
+                  orderId,
+                  cartId,
+                  FAILURE_REASON_EXPIRED,
+                  messageId
+            );
+        }
     }
 }

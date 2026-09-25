@@ -3,6 +3,8 @@ package com.echcherqaoui.orderflow.inventory.messaging.outbox;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmationFailedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
@@ -136,6 +138,46 @@ public class OutboxWriter {
         InventoryReleasedEvent event = InventoryReleasedEvent.newBuilder()
               .setMetadata(metadata)
               .setCartId(cartId)
+              .build();
+
+        persist(event, orderIdStr);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishInventoryConfirmedEvent(@lombok.NonNull UUID orderId,
+                                               @lombok.NonNull String cartId,
+                                               String causationId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(orderIdStr, causationId, cartId);
+
+        InventoryConfirmedEvent event = InventoryConfirmedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setCartId(cartId)
+              .setOrderId(orderIdStr)
+              .build();
+
+        persist(event, orderIdStr);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishInventoryConfirmationFailedEvent(@lombok.NonNull UUID orderId,
+                                                        String causationId,
+                                                        @lombok.NonNull String cartId,
+                                                        @lombok.NonNull String reason) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              causationId,
+              cartId,
+              reason
+        );
+
+        InventoryConfirmationFailedEvent event = InventoryConfirmationFailedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setCartId(cartId)
+              .setReason(reason)
               .build();
 
         persist(event, orderIdStr);
