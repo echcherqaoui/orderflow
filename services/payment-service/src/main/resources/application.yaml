@@ -84,3 +84,5 @@ orderflow:
     simulate-outage: false
     webhook-url: ${WEBHOOK_URL:http://localhost:8086/webhooks/stripe}
     failure-rate: 0.0
+    max-confirm-attempts: 3
+    webhook-secret: ${WEBHOOK_SECRET}

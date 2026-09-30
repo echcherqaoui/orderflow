@@ -93,7 +93,7 @@ class MockPaymentGatewayIT implements WithPostgres {
             mockPaymentGateway.cancelIntent(created.paymentIntentId());
 
             // Verification: re-issuing computeIfAbsent for the same key creates a brand new intent ID
-            MockPaymentIntent brandNewIntent = intentStore.computeIfAbsent(idempotencyKey, totalAmountCents);
+            MockPaymentIntent brandNewIntent = intentStore.getOrCreate(idempotencyKey, totalAmountCents);
             assertThat(brandNewIntent.paymentIntentId()).isNotEqualTo(created.paymentIntentId());
         }
 

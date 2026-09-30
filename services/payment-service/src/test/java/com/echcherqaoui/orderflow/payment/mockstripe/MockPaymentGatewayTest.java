@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -42,17 +43,20 @@ class MockPaymentGatewayTest {
     class CreateIntent {
 
         @Test
-        @DisplayName("delegates atomic creation/retrieval to computeIfAbsent when outage is false")
+        @DisplayName("delegates atomic creation/retrieval to getOrCreate when outage is false")
         void createIntent_successfulExecution_returnsResponseFromStore() {
             given(mockPspProperties.isSimulateOutage()).willReturn(false);
 
             MockPaymentIntent mockIntent = new MockPaymentIntent(
                   paymentIntentId,
+                  idempotencyKey,
                   clientSecret,
                   totalAmountCents,
-                  MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD
+                  REQUIRES_PAYMENT_METHOD,
+                  0,
+                  null
             );
-            given(intentStore.computeIfAbsent(idempotencyKey, totalAmountCents)).willReturn(mockIntent);
+            given(intentStore.getOrCreate(idempotencyKey, totalAmountCents)).willReturn(mockIntent);
 
             CreatePaymentIntentResponse response = mockPaymentGateway.createIntent(idempotencyKey, totalAmountCents);
 
@@ -60,7 +64,7 @@ class MockPaymentGatewayTest {
             assertThat(response.paymentIntentId()).isEqualTo(paymentIntentId);
             assertThat(response.clientSecret()).isEqualTo(clientSecret);
 
-            then(intentStore).should().computeIfAbsent(idempotencyKey, totalAmountCents);
+            then(intentStore).should().getOrCreate(idempotencyKey, totalAmountCents);
         }
 
         @Test

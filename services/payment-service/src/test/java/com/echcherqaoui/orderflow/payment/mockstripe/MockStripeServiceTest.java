@@ -3,23 +3,17 @@ package com.echcherqaoui.orderflow.payment.mockstripe;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentRequest;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
-import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload;
+import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload.PaymentError;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.TransitionResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.MediaType;
-import org.springframework.web.client.RestClient;
 
-import java.util.concurrent.Executor;
-import java.util.function.UnaryOperator;
-
+import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.CANCELED;
 import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
 import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,8 +22,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,49 +31,25 @@ class MockStripeServiceTest {
     private MockPaymentIntentStore intentStore;
 
     @Mock
-    private RestClient restClient;
+    private MockStripePaymentProcessor paymentProcessor;
 
     @Mock
-    private RestClient.RequestBodyUriSpec requestBodyUriSpec;
+    private MockStripeWebhookDispatcher webhookDispatcher;
 
     @Mock
     private MockPspProperties mockPspProperties;
 
-    @Mock
-    private RestClient.RequestBodySpec requestBodySpec;
-
-    @Mock
-    private RestClient.ResponseSpec responseSpec;
-
-    @Captor
-    private ArgumentCaptor<UnaryOperator<MockPaymentIntent>> transitionCaptor;
-
-    @Captor
-    private ArgumentCaptor<MockStripeWebhookPayload> payloadCaptor;
-
     private MockStripeService mockStripeService;
 
-    // Synchronous executor for deterministic async testing
-    private final Executor sameThreadExecutor = Runnable::run;
-
     private static final String PAYMENT_INTENT_ID = "pi_mock_123456";
+    private static final String IDEMPOTENCY_KEY = "idem_key_789";
     private static final String CLIENT_SECRET = "secret_mock_654321";
-    private static final String TEST_WEBHOOK_URL = "http://example.com/webhooks/stripe";
     private static final long AMOUNT_CENTS = 5000L;
+    private static final int MAX_CONFIRM_ATTEMPTS = 3;
 
     @BeforeEach
     void setUp() {
-        mockStripeService = new MockStripeService(intentStore, restClient, sameThreadExecutor, mockPspProperties);
-    }
-
-    private void mockRestClientPostCall() {
-        given(mockPspProperties.getWebhookUrl()).willReturn(TEST_WEBHOOK_URL);
-
-        given(restClient.post()).willReturn(requestBodyUriSpec);
-        given(requestBodyUriSpec.uri(TEST_WEBHOOK_URL)).willReturn(requestBodySpec);
-        given(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).willReturn(requestBodySpec);
-        given(requestBodySpec.body(any(MockStripeWebhookPayload.class))).willReturn(requestBodySpec);
-        given(requestBodySpec.retrieve()).willReturn(responseSpec);
+        mockStripeService = new MockStripeService(intentStore, paymentProcessor, webhookDispatcher, mockPspProperties);
     }
 
     @Nested
@@ -91,7 +59,8 @@ class MockStripeServiceTest {
         @Test
         @DisplayName("throws IllegalArgumentException when payment intent is not found")
         void confirm_notFound_throwsException() {
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), any()))
+            given(mockPspProperties.getMaxConfirmAttempts()).willReturn(MAX_CONFIRM_ATTEMPTS);
+            given(intentStore.recordAttempt(eq(PAYMENT_INTENT_ID), eq(CLIENT_SECRET), any(Boolean.class), any(), eq(MAX_CONFIRM_ATTEMPTS)))
                   .willReturn(new TransitionResult(null, false));
 
             ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_visa");
@@ -100,25 +69,17 @@ class MockStripeServiceTest {
                   .isInstanceOf(IllegalArgumentException.class)
                   .hasMessage("No such payment_intent: " + PAYMENT_INTENT_ID);
 
-            verifyNoInteractions(restClient);
+            verifyNoInteractions(webhookDispatcher);
         }
 
         @Test
-        @DisplayName("throws IllegalArgumentException when client_secret does not match inside state transition")
+        @DisplayName("re-throws IllegalArgumentException when recordAttempt fails due to client secret mismatch")
         void confirm_invalidClientSecret_throwsException() {
-            MockPaymentIntent existingIntent = new MockPaymentIntent(
-                  PAYMENT_INTENT_ID,
-                  CLIENT_SECRET,
-                  AMOUNT_CENTS,
-                  REQUIRES_PAYMENT_METHOD
-            );
+            given(paymentProcessor.decideOutcome("pm_card_visa")).willReturn(true);
+            given(mockPspProperties.getMaxConfirmAttempts()).willReturn(MAX_CONFIRM_ATTEMPTS);
 
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), transitionCaptor.capture()))
-                  .willAnswer(invocation -> {
-                      UnaryOperator<MockPaymentIntent> operator = invocation.getArgument(1);
-                      operator.apply(existingIntent);
-                      return null;
-                  });
+            given(intentStore.recordAttempt(PAYMENT_INTENT_ID, "invalid_secret", true, null, MAX_CONFIRM_ATTEMPTS))
+                  .willThrow(new IllegalArgumentException("Invalid client_secret provided for payment_intent: " + PAYMENT_INTENT_ID));
 
             ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest("invalid_secret", "pm_card_visa");
 
@@ -126,7 +87,7 @@ class MockStripeServiceTest {
                   .isInstanceOf(IllegalArgumentException.class)
                   .hasMessage("Invalid client_secret provided for payment_intent: " + PAYMENT_INTENT_ID);
 
-            verifyNoInteractions(restClient);
+            verifyNoInteractions(webhookDispatcher);
         }
     }
 
@@ -135,42 +96,39 @@ class MockStripeServiceTest {
     class SuccessfulConfirmation {
 
         @Test
-        @DisplayName("confirms intent successfully and dispatches payment_intent.succeeded webhook")
+        @DisplayName("confirms intent successfully and dispatches webhook via dispatcher")
         void confirm_success_updatesStatusAndDispatchesWebhook() {
-            MockPaymentIntent initialIntent = new MockPaymentIntent(
+            given(paymentProcessor.decideOutcome("pm_card_visa")).willReturn(true);
+            given(mockPspProperties.getMaxConfirmAttempts()).willReturn(MAX_CONFIRM_ATTEMPTS);
+
+            MockPaymentIntent updatedIntent = new MockPaymentIntent(
                   PAYMENT_INTENT_ID,
+                  IDEMPOTENCY_KEY,
                   CLIENT_SECRET,
                   AMOUNT_CENTS,
-                  REQUIRES_PAYMENT_METHOD
+                  SUCCEEDED,
+                  1,
+                  null
             );
 
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), transitionCaptor.capture()))
-                  .willAnswer(invocation -> {
-                      UnaryOperator<MockPaymentIntent> operator = invocation.getArgument(1);
-                      MockPaymentIntent updated = operator.apply(initialIntent);
-                      return new TransitionResult(updated, true);
-                  });
-
-            mockRestClientPostCall();
+            given(intentStore.recordAttempt(PAYMENT_INTENT_ID, CLIENT_SECRET, true, null, MAX_CONFIRM_ATTEMPTS))
+                  .willReturn(new TransitionResult(updatedIntent, true));
 
             ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_visa");
             ConfirmPaymentIntentResponse response = mockStripeService.confirmAndTriggerWebhook(PAYMENT_INTENT_ID, request);
 
             assertThat(response).isNotNull();
             assertThat(response.id()).isEqualTo(PAYMENT_INTENT_ID);
-            assertThat(response.status()).isEqualTo("succeeded");
+            assertThat(response.status()).isEqualTo("SUCCEEDED");
             assertThat(response.clientSecret()).isEqualTo(CLIENT_SECRET);
 
-            then(restClient).should().post();
-            then(requestBodyUriSpec).should().uri(TEST_WEBHOOK_URL);
-            then(requestBodySpec).should().contentType(MediaType.APPLICATION_JSON);
-            then(requestBodySpec).should().body(payloadCaptor.capture());
-
-            MockStripeWebhookPayload payload = payloadCaptor.getValue();
-            assertThat(payload.type()).isEqualTo("payment_intent.succeeded");
-            assertThat(payload.data().object().id()).isEqualTo(PAYMENT_INTENT_ID);
-            assertThat(payload.data().object().status()).isEqualTo("succeeded");
-            assertThat(payload.data().object().lastPaymentError()).isNull();
+            then(webhookDispatcher).should().dispatchWebhookAsync(
+                  eq(PAYMENT_INTENT_ID),
+                  eq(AMOUNT_CENTS),
+                  eq(SUCCEEDED),
+                  eq(null),
+                  eq(1)
+            );
         }
     }
 
@@ -179,73 +137,76 @@ class MockStripeServiceTest {
     class DeclinedOutcomes {
 
         @Test
-        @DisplayName("handles declined card, maps card_declined error, and sends payment_failed webhook")
+        @DisplayName("handles declined card, maps error, and dispatches webhook with error")
         void confirm_chargeDeclined_mapsErrorAndDispatchesWebhook() {
-            MockPaymentIntent initialIntent = new MockPaymentIntent(
+            PaymentError cardDeclinedError = new PaymentError("card_declined", "Your card was declined.");
+            given(paymentProcessor.decideOutcome("pm_card_chargeDeclined")).willReturn(false);
+            given(paymentProcessor.resolvePaymentError("pm_card_chargeDeclined")).willReturn(cardDeclinedError);
+            given(mockPspProperties.getMaxConfirmAttempts()).willReturn(MAX_CONFIRM_ATTEMPTS);
+
+            MockPaymentIntent updatedIntent = new MockPaymentIntent(
                   PAYMENT_INTENT_ID,
+                  IDEMPOTENCY_KEY,
                   CLIENT_SECRET,
                   AMOUNT_CENTS,
-                  REQUIRES_PAYMENT_METHOD
+                  REQUIRES_PAYMENT_METHOD,
+                  1,
+                  "card_declined"
             );
 
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), transitionCaptor.capture()))
-                  .willAnswer(invocation -> {
-                      UnaryOperator<MockPaymentIntent> operator = invocation.getArgument(1);
-                      MockPaymentIntent updated = operator.apply(initialIntent);
-                      return new TransitionResult(updated, true);
-                  });
-
-            mockRestClientPostCall();
+            given(intentStore.recordAttempt(PAYMENT_INTENT_ID, CLIENT_SECRET, false, "card_declined", MAX_CONFIRM_ATTEMPTS))
+                  .willReturn(new TransitionResult(updatedIntent, true));
 
             ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_chargeDeclined");
             ConfirmPaymentIntentResponse response = mockStripeService.confirmAndTriggerWebhook(PAYMENT_INTENT_ID, request);
 
             assertThat(response.id()).isEqualTo(PAYMENT_INTENT_ID);
-            assertThat(response.status()).isEqualTo("requires_payment_method");
+            assertThat(response.status()).isEqualTo("REQUIRES_PAYMENT_METHOD");
             assertThat(response.clientSecret()).isEqualTo(CLIENT_SECRET);
 
-            then(requestBodySpec).should().body(payloadCaptor.capture());
-            MockStripeWebhookPayload payload = payloadCaptor.getValue();
-
-            assertThat(payload.type()).isEqualTo("payment_intent.payment_failed");
-            assertThat(payload.data().object().lastPaymentError()).isNotNull();
-            assertThat(payload.data().object().lastPaymentError().code()).isEqualTo("card_declined");
-            assertThat(payload.data().object().lastPaymentError().message()).isEqualTo("Your card was declined.");
+            then(webhookDispatcher).should().dispatchWebhookAsync(
+                  eq(PAYMENT_INTENT_ID),
+                  eq(AMOUNT_CENTS),
+                  eq(REQUIRES_PAYMENT_METHOD),
+                  eq(cardDeclinedError),
+                  eq(1)
+            );
         }
 
         @Test
-        @DisplayName("handles insufficient funds, maps insufficient_funds error, and sends payment_failed webhook")
-        void confirm_insufficientFunds_mapsErrorAndDispatchesWebhook() {
-            MockPaymentIntent initialIntent = new MockPaymentIntent(
+        @DisplayName("dispatches CANCELED status webhook when max confirm attempts are reached")
+        void confirm_maxAttemptsReached_transitionsToCanceled() {
+            PaymentError maxAttemptsError = new PaymentError("card_declined", "Your card was declined.");
+            given(paymentProcessor.decideOutcome("pm_card_chargeDeclined")).willReturn(false);
+            given(paymentProcessor.resolvePaymentError("pm_card_chargeDeclined")).willReturn(maxAttemptsError);
+            given(mockPspProperties.getMaxConfirmAttempts()).willReturn(MAX_CONFIRM_ATTEMPTS);
+
+            MockPaymentIntent canceledIntent = new MockPaymentIntent(
                   PAYMENT_INTENT_ID,
+                  IDEMPOTENCY_KEY,
                   CLIENT_SECRET,
                   AMOUNT_CENTS,
-                  REQUIRES_PAYMENT_METHOD
+                  CANCELED,
+                  MAX_CONFIRM_ATTEMPTS,
+                  "card_declined"
             );
 
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), transitionCaptor.capture()))
-                  .willAnswer(invocation -> {
-                      UnaryOperator<MockPaymentIntent> operator = invocation.getArgument(1);
-                      MockPaymentIntent updated = operator.apply(initialIntent);
-                      return new TransitionResult(updated, true);
-                  });
+            given(intentStore.recordAttempt(PAYMENT_INTENT_ID, CLIENT_SECRET, false, "card_declined", MAX_CONFIRM_ATTEMPTS))
+                  .willReturn(new TransitionResult(canceledIntent, true));
 
-            mockRestClientPostCall();
-
-            ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_insufficientFunds");
+            ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_chargeDeclined");
             ConfirmPaymentIntentResponse response = mockStripeService.confirmAndTriggerWebhook(PAYMENT_INTENT_ID, request);
 
             assertThat(response.id()).isEqualTo(PAYMENT_INTENT_ID);
-            assertThat(response.status()).isEqualTo("requires_payment_method");
-            assertThat(response.clientSecret()).isEqualTo(CLIENT_SECRET);
+            assertThat(response.status()).isEqualTo("CANCELED");
 
-            then(requestBodySpec).should().body(payloadCaptor.capture());
-            MockStripeWebhookPayload payload = payloadCaptor.getValue();
-
-            assertThat(payload.type()).isEqualTo("payment_intent.payment_failed");
-            assertThat(payload.data().object().lastPaymentError()).isNotNull();
-            assertThat(payload.data().object().lastPaymentError().code()).isEqualTo("insufficient_funds");
-            assertThat(payload.data().object().lastPaymentError().message()).isEqualTo("Your card has insufficient funds.");
+            then(webhookDispatcher).should().dispatchWebhookAsync(
+                  eq(PAYMENT_INTENT_ID),
+                  eq(AMOUNT_CENTS),
+                  eq(CANCELED),
+                  eq(maxAttemptsError),
+                  eq(MAX_CONFIRM_ATTEMPTS)
+            );
         }
     }
 
@@ -256,60 +217,30 @@ class MockStripeServiceTest {
         @Test
         @DisplayName("returns current intent state without triggering webhooks when transition was not applied")
         void confirm_transitionNotApplied_returnsCurrentStateWithoutWebhook() {
+            given(paymentProcessor.decideOutcome("pm_card_visa")).willReturn(true);
+            given(mockPspProperties.getMaxConfirmAttempts()).willReturn(MAX_CONFIRM_ATTEMPTS);
+
             MockPaymentIntent existingSucceededIntent = new MockPaymentIntent(
                   PAYMENT_INTENT_ID,
+                  IDEMPOTENCY_KEY,
                   CLIENT_SECRET,
                   AMOUNT_CENTS,
-                  SUCCEEDED
+                  SUCCEEDED,
+                  1,
+                  null
             );
 
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), any()))
+            given(intentStore.recordAttempt(PAYMENT_INTENT_ID, CLIENT_SECRET, true, null, MAX_CONFIRM_ATTEMPTS))
                   .willReturn(new TransitionResult(existingSucceededIntent, false));
 
             ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_visa");
             ConfirmPaymentIntentResponse response = mockStripeService.confirmAndTriggerWebhook(PAYMENT_INTENT_ID, request);
 
             assertThat(response.id()).isEqualTo(PAYMENT_INTENT_ID);
-            assertThat(response.status()).isEqualTo("succeeded");
+            assertThat(response.status()).isEqualTo(SUCCEEDED.getValue());
             assertThat(response.clientSecret()).isEqualTo(CLIENT_SECRET);
 
-            verifyNoInteractions(restClient);
-        }
-    }
-
-    @Nested
-    @DisplayName("Webhook Delivery Retries")
-    class WebhookRetries {
-
-        @Test
-        @DisplayName("retries webhook posting when RestClient throws exception")
-        void postWebhook_transientError_retriesAndSucceeds() {
-            MockPaymentIntent initialIntent = new MockPaymentIntent(
-                  PAYMENT_INTENT_ID,
-                  CLIENT_SECRET,
-                  AMOUNT_CENTS,
-                  REQUIRES_PAYMENT_METHOD
-            );
-
-            given(intentStore.transitionIfPending(eq(PAYMENT_INTENT_ID), transitionCaptor.capture()))
-                  .willAnswer(invocation -> {
-                      UnaryOperator<MockPaymentIntent> operator = invocation.getArgument(1);
-                      MockPaymentIntent updated = operator.apply(initialIntent);
-                      return new TransitionResult(updated, true);
-                  });
-
-            mockRestClientPostCall();
-
-            doAnswer(invocation -> {
-                throw new RuntimeException("Network connection reset");
-            }).doAnswer(invocation -> null)
-                  .when(responseSpec).toBodilessEntity();
-
-            ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(CLIENT_SECRET, "pm_card_visa");
-            ConfirmPaymentIntentResponse response = mockStripeService.confirmAndTriggerWebhook(PAYMENT_INTENT_ID, request);
-
-            assertThat(response.status()).isEqualTo("succeeded");
-            then(responseSpec).should(times(2)).toBodilessEntity();
+            verifyNoInteractions(webhookDispatcher);
         }
     }
 }

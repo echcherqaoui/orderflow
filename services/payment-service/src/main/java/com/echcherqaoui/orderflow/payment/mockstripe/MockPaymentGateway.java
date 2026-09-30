@@ -27,7 +27,7 @@ public class MockPaymentGateway implements PaymentGateway {
             throw new PaymentGatewayTransientException();
         }
 
-        MockPaymentIntent intent = intentStore.computeIfAbsent(idempotencyKey, totalAmountCents);
+        MockPaymentIntent intent = intentStore.getOrCreate(idempotencyKey, totalAmountCents);
 
         return new CreatePaymentIntentResponse(intent.paymentIntentId(), intent.clientSecret());
     }
