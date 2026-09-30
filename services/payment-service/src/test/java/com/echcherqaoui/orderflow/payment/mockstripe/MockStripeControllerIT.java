@@ -45,7 +45,7 @@ class MockStripeControllerIT implements WithPostgres {
     @Test
     @DisplayName("valid payment confirmation returns 200 OK with confirmed status")
     void confirmPaymentIntent_validRequest_returns200Ok() throws Exception {
-        MockPaymentIntent intent = intentStore.computeIfAbsent(idempotencyKey, totalAmountCents);
+        MockPaymentIntent intent = intentStore.getOrCreate(idempotencyKey, totalAmountCents);
 
         ConfirmPaymentIntentRequest request = new ConfirmPaymentIntentRequest(intent.clientSecret(), "pm_card_visa");
 
@@ -60,7 +60,7 @@ class MockStripeControllerIT implements WithPostgres {
     @Test
     @DisplayName("invalid payload fails DTO validation, returns 400 Bad Request")
     void confirmPaymentIntent_invalidRequestBody_returns400() throws Exception {
-        MockPaymentIntent intent = intentStore.computeIfAbsent(idempotencyKey, totalAmountCents);
+        MockPaymentIntent intent = intentStore.getOrCreate(idempotencyKey, totalAmountCents);
 
         // Blank clientSecret or invalid fields depending on your ConfirmPaymentIntentRequest validation rules
         ConfirmPaymentIntentRequest invalidRequest = new ConfirmPaymentIntentRequest("", "");

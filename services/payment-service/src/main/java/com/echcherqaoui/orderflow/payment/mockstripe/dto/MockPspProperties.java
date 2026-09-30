@@ -15,4 +15,6 @@ public class MockPspProperties {
     private boolean simulateOutage;
     private double failureRate;
     private String webhookUrl;
+    private int maxConfirmAttempts;
+    private String webhookSecret;
 }
