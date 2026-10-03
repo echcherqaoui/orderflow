@@ -2,13 +2,15 @@ package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
-import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
 import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.model.Payment;
+import com.echcherqaoui.orderflow.payment.model.PaymentAttemptStatus;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -17,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,6 +40,9 @@ class PaymentPersistenceServiceIT implements WithPostgres {
     @Autowired
     private PaymentRepository paymentRepository;
 
+    @Autowired
+    private TransactionTemplate txTemplate;
+
     @MockitoSpyBean
     private OutboxEventRepository outboxEventRepository;
 
@@ -51,6 +57,14 @@ class PaymentPersistenceServiceIT implements WithPostgres {
     void setUp() {
         outboxEventRepository.deleteAll();
         paymentRepository.deleteAll();
+    }
+
+    private Payment paymentWithAttempts() {
+        return txTemplate.execute(status -> {
+            Payment payment = paymentRepository.findAll().getFirst();
+            Hibernate.initialize(payment.getAttempts());
+            return payment;
+        });
     }
 
     @Nested
@@ -297,19 +311,23 @@ class PaymentPersistenceServiceIT implements WithPostgres {
     }
 
     @Nested
-    @DisplayName("markPaymentChargedAndOutbox()")
-    class MarkPaymentChargedAndOutbox {
+    @DisplayName("recordSuccessAndOutbox()")
+    class RecordSuccessAndOutbox {
 
         @Test
-        @DisplayName("atomic commit updates status to SUCCESS and writes outbox event")
-        void markPaymentChargedAndOutbox_success_updatesStatusAndWritesOutboxAtomically() {
+        @DisplayName("atomic commit creates SUCCESS attempt, updates status to SUCCESS, and writes outbox event")
+        void recordSuccessAndOutbox_success_updatesStatusAppendsAttemptAndWritesOutboxAtomically() {
             transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
             outboxEventRepository.deleteAll();
 
-            transactionalWriter.markPaymentChargedAndOutbox(pspResponse.paymentIntentId());
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
 
-            Payment payment = paymentRepository.findAll().getFirst();
+            Payment payment = paymentWithAttempts();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
+            assertThat(payment.getFailureReason()).isNull();
+
+            assertThat(payment.getAttempts()).hasSize(1);
+            assertThat(payment.getAttempts().getFirst().getStatus()).isEqualTo(PaymentAttemptStatus.SUCCESS);
 
             List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
             assertThat(outboxEvents).hasSize(1);
@@ -318,16 +336,16 @@ class PaymentPersistenceServiceIT implements WithPostgres {
 
         @Test
         @DisplayName("non-existent payment intent throws PaymentNotFoundException and aborts outbox publication")
-        void markPaymentChargedAndOutbox_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
-            assertThatThrownBy(() -> transactionalWriter.markPaymentChargedAndOutbox("pi_non_existent"))
+        void recordSuccessAndOutbox_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
+            assertThatThrownBy(() -> transactionalWriter.recordSuccessAndOutbox("pi_non_existent"))
                   .isInstanceOf(PaymentNotFoundException.class);
 
             assertThat(outboxEventRepository.findAll()).isEmpty();
         }
 
         @Test
-        @DisplayName("outbox persistence failure rolls back payment status update")
-        void markPaymentChargedAndOutbox_outboxFailure_rollsBackEntireTransaction() {
+        @DisplayName("outbox persistence failure rolls back payment status update and attempt persistence")
+        void recordSuccessAndOutbox_outboxFailure_rollsBackEntireTransaction() {
             transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
 
             willThrow(new RuntimeException("Outbox database persistence failure"))
@@ -336,34 +354,72 @@ class PaymentPersistenceServiceIT implements WithPostgres {
 
             String paymentIntentId = pspResponse.paymentIntentId();
 
-            assertThatThrownBy(() -> transactionalWriter.markPaymentChargedAndOutbox(paymentIntentId))
+            assertThatThrownBy(() -> transactionalWriter.recordSuccessAndOutbox(paymentIntentId))
                   .isInstanceOf(RuntimeException.class)
                   .hasMessage("Outbox database persistence failure");
 
-            Payment payment = paymentRepository.findAll().getFirst();
+            Payment payment = paymentWithAttempts();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(payment.getAttempts()).isEmpty();
         }
     }
 
-
-
     @Nested
-    @DisplayName("markPaymentFailedAndOutbox()")
-    class MarkPaymentFailedAndOutbox {
+    @DisplayName("recordFailedAttempt()")
+    class RecordFailedAttempt {
 
-        private final String failureReason = "Insufficient funds";
+        private final String errorCode = "card_declined";
+        private final String errorMessage = "Your card was declined.";
 
         @Test
-        @DisplayName("atomic commit updates status to FAILED, sets reason, and writes outbox event")
-        void markPaymentFailedAndOutbox_success_updatesStatusAndWritesOutboxAtomically() {
+        @DisplayName("appends FAILED attempt and sets failureReason without changing main payment status or emitting outbox event")
+        void recordFailedAttempt_success_appendsAttemptWithoutOutbox() {
             transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
             outboxEventRepository.deleteAll();
 
-            transactionalWriter.markPaymentFailedAndOutbox(pspResponse.paymentIntentId(), failureReason);
+            transactionalWriter.recordFailedAttempt(pspResponse.paymentIntentId(), errorCode, errorMessage);
 
-            Payment payment = paymentRepository.findAll().getFirst();
+            Payment payment = paymentWithAttempts();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(payment.getFailureReason()).isEqualTo(errorMessage);
+
+            assertThat(payment.getAttempts()).hasSize(1);
+            assertThat(payment.getAttempts().getFirst().getStatus()).isEqualTo(PaymentAttemptStatus.FAILED);
+            assertThat(payment.getAttempts().getFirst().getErrorCode()).isEqualTo(errorCode);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("non-existent payment intent throws PaymentNotFoundException")
+        void recordFailedAttempt_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
+            assertThatThrownBy(() -> transactionalWriter.recordFailedAttempt("pi_non_existent", errorCode, errorMessage))
+                  .isInstanceOf(PaymentNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("recordCanceledAndOutbox()")
+    class RecordCanceledAndOutbox {
+
+        private final String errorCode = "payment_intent_canceled";
+        private final String errorMessage = "The payment intent was canceled.";
+
+        @Test
+        @DisplayName("atomic commit creates CANCELED attempt, updates status to FAILED, and writes terminal failure outbox event")
+        void recordCanceledAndOutbox_success_updatesStatusAppendsAttemptAndWritesOutboxAtomically() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            outboxEventRepository.deleteAll();
+
+            transactionalWriter.recordCanceledAndOutbox(pspResponse.paymentIntentId(), errorCode, errorMessage);
+
+            Payment payment = paymentWithAttempts();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-            assertThat(payment.getFailureReason()).isEqualTo(failureReason);
+            assertThat(payment.getFailureReason()).isEqualTo(errorMessage);
+
+            assertThat(payment.getAttempts()).hasSize(1);
+            assertThat(payment.getAttempts().getFirst().getStatus()).isEqualTo(PaymentAttemptStatus.CANCELED);
+            assertThat(payment.getAttempts().getFirst().getErrorCode()).isEqualTo(errorCode);
 
             List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
             assertThat(outboxEvents).hasSize(1);
@@ -372,16 +428,16 @@ class PaymentPersistenceServiceIT implements WithPostgres {
 
         @Test
         @DisplayName("non-existent payment intent throws PaymentNotFoundException and aborts outbox publication")
-        void markPaymentFailedAndOutbox_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
-            assertThatThrownBy(() -> transactionalWriter.markPaymentFailedAndOutbox("pi_non_existent", failureReason))
+        void recordCanceledAndOutbox_nonExistentPaymentIntent_throwsPaymentNotFoundException() {
+            assertThatThrownBy(() -> transactionalWriter.recordCanceledAndOutbox("pi_non_existent", errorCode, errorMessage))
                   .isInstanceOf(PaymentNotFoundException.class);
 
             assertThat(outboxEventRepository.findAll()).isEmpty();
         }
 
         @Test
-        @DisplayName("outbox persistence failure rolls back payment status update")
-        void markPaymentFailedAndOutbox_outboxFailure_rollsBackEntireTransaction() {
+        @DisplayName("outbox persistence failure rolls back payment status change and attempt persistence")
+        void recordCanceledAndOutbox_outboxFailure_rollsBackEntireTransaction() {
             transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
 
             willThrow(new RuntimeException("Outbox database persistence failure"))
@@ -390,12 +446,13 @@ class PaymentPersistenceServiceIT implements WithPostgres {
 
             String paymentIntentId = pspResponse.paymentIntentId();
 
-            assertThatThrownBy(() -> transactionalWriter.markPaymentFailedAndOutbox(paymentIntentId, failureReason))
+            assertThatThrownBy(() -> transactionalWriter.recordCanceledAndOutbox(paymentIntentId, errorCode, errorMessage))
                   .isInstanceOf(RuntimeException.class)
                   .hasMessage("Outbox database persistence failure");
 
-            Payment payment = paymentRepository.findAll().getFirst();
+            Payment payment = paymentWithAttempts();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(payment.getAttempts()).isEmpty();
         }
     }
 }

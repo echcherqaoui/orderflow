@@ -25,7 +25,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willDoNothing;
 import static org.mockito.BDDMockito.willThrow;
@@ -42,11 +42,15 @@ class StripeWebhookControllerTest {
     private StripeWebhookController stripeWebhookController;
 
     @Captor
-    private ArgumentCaptor<StripeWebhookPayload> payloadCaptor;
+    private ArgumentCaptor<String> signatureCaptor;
+
+    @Captor
+    private ArgumentCaptor<String> payloadCaptor;
 
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private final String validSignature = "t=12345,v1=valid_signature_hash";
     private final String validEventId = "evt_stripe_" + UUID.randomUUID();
     private final String validEventType = "payment_intent.succeeded";
     private final String validPaymentIntentId = "pi_stripe_" + UUID.randomUUID();
@@ -64,53 +68,52 @@ class StripeWebhookControllerTest {
 
         @Test
         @DisplayName("direct method invocation returns 200 OK with empty body from service")
-        void handleStripeWebhook_directInvocation_returns200OkWithEmptyBody() {
-            StripeWebhookPayload payload = createValidPayload();
-            willDoNothing().given(stripeWebhookService).processWebhook(any(StripeWebhookPayload.class));
+        void handleStripeWebhook_directInvocation_returns200OkWithEmptyBody() throws Exception {
+            String rawPayload = createValidPayloadJson();
+            willDoNothing().given(stripeWebhookService).processWebhook(anyString(), anyString());
 
-            ResponseEntity<Void> response = stripeWebhookController.handleStripeWebhook(payload);
+            ResponseEntity<Void> response = stripeWebhookController.handleStripeWebhook(validSignature, rawPayload);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(response.getBody()).isNull();
 
-            then(stripeWebhookService).should().processWebhook(payloadCaptor.capture());
-            assertThat(payloadCaptor.getValue()).isEqualTo(payload);
+            then(stripeWebhookService).should().processWebhook(signatureCaptor.capture(), payloadCaptor.capture());
+            assertThat(signatureCaptor.getValue()).isEqualTo(validSignature);
+            assertThat(payloadCaptor.getValue()).isEqualTo(rawPayload);
         }
 
         @Test
-        @DisplayName("valid HTTP payload delegates to service and returns 200 OK")
+        @DisplayName("valid HTTP payload and signature delegate to service and return 200 OK")
         void handleStripeWebhook_validPayload_returns200Ok() throws Exception {
-            StripeWebhookPayload payload = createValidPayload();
-            willDoNothing().given(stripeWebhookService).processWebhook(any(StripeWebhookPayload.class));
+            String rawPayload = createValidPayloadJson();
+            willDoNothing().given(stripeWebhookService).processWebhook(anyString(), anyString());
 
             mockMvc.perform(post("/webhooks/stripe")
+                        .header("Stripe-Signature", validSignature)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(payload)))
+                        .content(rawPayload))
                   .andExpect(status().isOk());
 
-            then(stripeWebhookService).should().processWebhook(payloadCaptor.capture());
-            StripeWebhookPayload capturedPayload = payloadCaptor.getValue();
-            assertThat(capturedPayload.id()).isEqualTo(validEventId);
-            assertThat(capturedPayload.type()).isEqualTo(validEventType);
-            assertThat(capturedPayload.data().object().id()).isEqualTo(validPaymentIntentId);
-            assertThat(capturedPayload.data().object().amount()).isEqualTo(validAmountCents);
+            then(stripeWebhookService).should().processWebhook(signatureCaptor.capture(), payloadCaptor.capture());
+            assertThat(signatureCaptor.getValue()).isEqualTo(validSignature);
+            assertThat(payloadCaptor.getValue()).isEqualTo(rawPayload);
         }
 
         @Test
         @DisplayName("service failure propagates exception during execution")
-        void handleStripeWebhook_serviceFails_propagatesException() {
-            StripeWebhookPayload payload = createValidPayload();
+        void handleStripeWebhook_serviceFails_propagatesException() throws Exception {
+            String rawPayload = createValidPayloadJson();
             RuntimeException serviceException = new RuntimeException("Failed to process webhook transaction");
-            willThrow(serviceException).given(stripeWebhookService).processWebhook(any(StripeWebhookPayload.class));
+            willThrow(serviceException).given(stripeWebhookService).processWebhook(anyString(), anyString());
 
-            assertThatThrownBy(() -> stripeWebhookController.handleStripeWebhook(payload))
+            assertThatThrownBy(() -> stripeWebhookController.handleStripeWebhook(validSignature, rawPayload))
                   .isSameAs(serviceException);
 
-            then(stripeWebhookService).should().processWebhook(any(StripeWebhookPayload.class));
+            then(stripeWebhookService).should().processWebhook(validSignature, rawPayload);
         }
     }
 
-    private StripeWebhookPayload createValidPayload() {
+    private String createValidPayloadJson() throws Exception {
         ObjectData objectData = new ObjectData(
               validPaymentIntentId,
               validAmountCents,
@@ -118,6 +121,7 @@ class StripeWebhookControllerTest {
               "succeeded",
               null
         );
-        return new StripeWebhookPayload(validEventId, validEventType, new Data(objectData));
+        StripeWebhookPayload payload = new StripeWebhookPayload(validEventId, validEventType, new Data(objectData));
+        return objectMapper.writeValueAsString(payload);
     }
 }

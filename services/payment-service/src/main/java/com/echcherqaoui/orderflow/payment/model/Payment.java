@@ -1,5 +1,7 @@
 package com.echcherqaoui.orderflow.payment.model;
 
+import com.echcherqaoui.orderflow.payment.domain.PaymentAttempt;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -7,6 +9,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
@@ -16,6 +19,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -58,4 +63,16 @@ public class Payment {
     @UpdateTimestamp
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @OneToMany(mappedBy = "payment", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PaymentAttempt> attempts = new ArrayList<>();
+
+    public void addAttempt(PaymentAttemptStatus status, String errorCode) {
+        PaymentAttempt attempt = new PaymentAttempt()
+              .setPayment(this)
+              .setStatus(status)
+              .setErrorCode(errorCode);
+
+        this.attempts.add(attempt);
+    }
 }

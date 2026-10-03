@@ -15,7 +15,7 @@ public class WebhookIdempotencyService {
 
     private final ProcessedWebhookEventRepository processedWebhookEventRepository;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.MANDATORY)
     public void registerEvent(String eventId, String eventType) {
         ProcessedWebhookEvent event = new ProcessedWebhookEvent()
               .setEventId(eventId)

@@ -15,7 +15,7 @@ public record MockPaymentIntent(String paymentIntentId,
                                 String lastErrorCode) {
 
     @lombok.NonNull
-    public static MockPaymentIntent create(String idempotencyKey, Long totalAmountCents) {
+    public static MockPaymentIntent create(@lombok.NonNull String idempotencyKey, @lombok.NonNull Long totalAmountCents) {
         return new MockPaymentIntent(
               "pi_mock_" + UUID.randomUUID(),
               idempotencyKey,
