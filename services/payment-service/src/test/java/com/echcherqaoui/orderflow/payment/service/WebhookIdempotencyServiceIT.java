@@ -13,7 +13,6 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
@@ -25,7 +24,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
 @Import(WebhookIdempotencyService.class)
-@Transactional(propagation = Propagation.NOT_SUPPORTED)
 class WebhookIdempotencyServiceIT implements WithPostgres {
 
     @Autowired
@@ -47,6 +45,7 @@ class WebhookIdempotencyServiceIT implements WithPostgres {
     class RegisterEvent {
 
         @Test
+        @Transactional
         @DisplayName("persists processed webhook event successfully in database")
         void registerEvent_success_persistsEvent() {
             webhookIdempotencyService.registerEvent(eventId, eventType);
@@ -60,6 +59,7 @@ class WebhookIdempotencyServiceIT implements WithPostgres {
         }
 
         @Test
+        @Transactional
         @DisplayName("throws DataIntegrityViolationException when duplicate eventId is inserted")
         void registerEvent_duplicateEventId_throwsDataIntegrityViolationException() {
             webhookIdempotencyService.registerEvent(eventId, eventType);

@@ -101,8 +101,8 @@ public class MockStripeWebhookDispatcher {
         }
     }
 
-    public void dispatchWebhookAsync(String paymentIntentId,
-                                     long amountCents,
+    public void dispatchWebhookAsync(@lombok.NonNull String paymentIntentId,
+                                     @lombok.NonNull Long amountCents,
                                      @lombok.NonNull MockPaymentIntentStatus intentStatus,
                                      PaymentError error,
                                      int attemptCount) {

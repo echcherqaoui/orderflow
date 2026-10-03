@@ -1,10 +1,12 @@
 package com.echcherqaoui.orderflow.payment.service;
 
-import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
 import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.payment.model.Payment;
+import com.echcherqaoui.orderflow.payment.model.PaymentAttemptStatus;
+import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +22,6 @@ import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.P
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.CANCELLED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.FAILED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.PENDING;
-import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.SUCCESS;
 
 @Service
 @RequiredArgsConstructor
@@ -106,34 +107,70 @@ public class PaymentPersistenceService {
     }
 
     @Transactional
-    public void markPaymentChargedAndOutbox(@NonNull String paymentIntentId) {
+    public void recordSuccessAndOutbox(@NonNull String paymentIntentId) {
         Payment payment = findByPaymentIntentId(paymentIntentId);
 
-        payment.setStatus(SUCCESS);
+        // Record SUCCESS attempt
+        payment.addAttempt(PaymentAttemptStatus.SUCCESS, null);
+
+        // Transition payment status to terminal SUCCESS
+        payment.setStatus(PaymentStatus.SUCCESS)
+              .setFailureReason(null);
 
         paymentRepository.saveAndFlush(payment);
 
+        // Write outbox event
         outboxWriter.writePaymentChargedEvent(
               payment.getOrderId().toString(),
               paymentIntentId
         );
-        log.info("Payment [{}] successfully marked as SUCCESS and outbox event published", paymentIntentId);
+
+        log.info("Payment [{}] marked as SUCCESS and outbox event published", paymentIntentId);
     }
 
     @Transactional
-    public void markPaymentFailedAndOutbox(@NonNull String paymentIntentId, String failureReason) {
+    public void recordFailedAttempt(@NonNull String paymentIntentId, String errorCode, String errorMessage) {
         Payment payment = findByPaymentIntentId(paymentIntentId);
 
-        payment.setStatus(FAILED)
-              .setFailureReason(failureReason);
+        payment.addAttempt(PaymentAttemptStatus.FAILED, errorCode);
+
+        // Update failure reason for trace, but leave main status intact (PENDING/REQUIRES_PAYMENT_METHOD)
+        payment.setFailureReason(errorMessage);
 
         paymentRepository.saveAndFlush(payment);
 
+        // NO outbox event emitted for transient failures (allows user to retry)
+        log.info(
+              "Recorded transient payment attempt failure for [{}] with code: {}",
+              paymentIntentId,
+              errorCode
+        );
+    }
+
+    @Transactional
+    public void recordCanceledAndOutbox(@NonNull String paymentIntentId, String errorCode, String errorMessage) {
+        Payment payment = findByPaymentIntentId(paymentIntentId);
+
+        // Record CANCELED attempt
+        payment.addAttempt(PaymentAttemptStatus.CANCELED, errorCode);
+
+        // Transition payment status to terminal FAILED
+        payment.setStatus(PaymentStatus.FAILED)
+              .setFailureReason(errorMessage);
+
+        paymentRepository.saveAndFlush(payment);
+
+        // Write terminal failure outbox event (triggers order cancellation & inventory release downstream)
         outboxWriter.writePaymentFailedEvent(
               payment.getOrderId().toString(),
               paymentIntentId,
-              failureReason
+              errorMessage
         );
-        log.info("Payment [{}] marked as FAILED and outbox event published. Reason: {}", paymentIntentId, failureReason);
+
+        log.info(
+              "Payment [{}] marked as FAILED (CANCELED) and outbox failure event published. Reason: {}",
+              paymentIntentId,
+              errorMessage
+        );
     }
 }

@@ -6,11 +6,15 @@ import com.echcherqaoui.orderflow.payment.dto.StripeWebhookPayload;
 import com.echcherqaoui.orderflow.payment.dto.StripeWebhookPayload.Data;
 import com.echcherqaoui.orderflow.payment.dto.StripeWebhookPayload.ObjectData;
 import com.echcherqaoui.orderflow.payment.dto.StripeWebhookPayload.PaymentError;
+import com.echcherqaoui.orderflow.payment.exception.domain.InvalidWebhookSignatureException;
 import com.echcherqaoui.orderflow.payment.model.Payment;
+import com.echcherqaoui.orderflow.payment.model.PaymentAttemptStatus;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
 import com.echcherqaoui.orderflow.payment.repository.ProcessedWebhookEventRepository;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +36,8 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -47,6 +55,16 @@ class StripeWebhookServiceIT implements WithPostgres {
     @Autowired
     private ProcessedWebhookEventRepository processedWebhookEventRepository;
 
+    @Autowired
+    private TransactionTemplate txTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockitoBean
+    private StripeWebhookSignatureVerifier webhookSignatureVerifier;
+
+    private final String signature = "t=12345,v1=valid_signature_hash";
     private final UUID orderId = UUID.randomUUID();
     private final String userId = "user-123";
     private final long totalAmountCents = 25000L;
@@ -58,6 +76,30 @@ class StripeWebhookServiceIT implements WithPostgres {
         processedWebhookEventRepository.deleteAllInBatch();
         outboxEventRepository.deleteAllInBatch();
         paymentRepository.deleteAllInBatch();
+
+        given(webhookSignatureVerifier.verify(anyString(), anyString())).willReturn(true);
+    }
+
+    private Payment savePendingPayment() {
+        Payment initialPayment = new Payment()
+              .setOrderId(orderId)
+              .setPaymentIntentId(paymentIntentId)
+              .setUserId(userId)
+              .setTotalAmountCents(totalAmountCents)
+              .setStatus(PaymentStatus.PENDING);
+        return paymentRepository.saveAndFlush(initialPayment);
+    }
+
+
+    /**
+     * Loads payment and initializes its lazy attempts inside the transaction.
+     */
+    private Payment paymentWithAttempts() {
+        return txTemplate.execute(status -> {
+            Payment payment = paymentRepository.findAll().getFirst();
+            Hibernate.initialize(payment.getAttempts());
+            return payment;
+        });
     }
 
     @Nested
@@ -65,20 +107,64 @@ class StripeWebhookServiceIT implements WithPostgres {
     class ProcessWebhook {
 
         @Test
-        @DisplayName("payment_intent.succeeded marks payment CHARGED and emits outbox event atomically")
-        void processWebhook_paymentIntentSucceeded_marksChargedAndPersistsOutbox() {
-            Payment initialPayment = new Payment()
-                  .setOrderId(orderId)
-                  .setPaymentIntentId(paymentIntentId)
-                  .setUserId(userId)
-                  .setTotalAmountCents(totalAmountCents)
-                  .setStatus(PaymentStatus.PENDING);
-            paymentRepository.saveAndFlush(initialPayment);
+        @DisplayName("null signature throws NullPointerException without touching database")
+        void processWebhook_nullSignature_throwsNullPointerException() {
+            assertThatThrownBy(() -> stripeWebhookService.processWebhook(null, "{}"))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThat(processedWebhookEventRepository.findAll()).isEmpty();
+            assertThat(paymentRepository.findAll()).isEmpty();
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("null rawPayload throws NullPointerException without touching database")
+        void processWebhook_nullRawPayload_throwsNullPointerException() {
+            assertThatThrownBy(() -> stripeWebhookService.processWebhook(signature, null))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThat(processedWebhookEventRepository.findAll()).isEmpty();
+            assertThat(paymentRepository.findAll()).isEmpty();
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("invalid webhook signature throws InvalidWebhookSignatureException")
+        void processWebhook_invalidSignature_throwsInvalidWebhookSignatureException() {
+            given(webhookSignatureVerifier.verify(anyString(), anyString())).willReturn(false);
+
+            assertThatThrownBy(() -> stripeWebhookService.processWebhook(signature, "{\"id\":\"evt_123\"}"))
+                  .isInstanceOf(InvalidWebhookSignatureException.class);
+
+            assertThat(processedWebhookEventRepository.findAll()).isEmpty();
+            assertThat(paymentRepository.findAll()).isEmpty();
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("malformed JSON rawPayload throws IllegalArgumentException")
+        void processWebhook_malformedJson_throwsIllegalArgumentException() {
+            String malformedJson = "{ invalid_json }";
+
+            assertThatThrownBy(() -> stripeWebhookService.processWebhook(signature, malformedJson))
+                  .isInstanceOf(IllegalArgumentException.class)
+                  .hasMessageContaining("Invalid payload format");
+
+            assertThat(processedWebhookEventRepository.findAll()).isEmpty();
+            assertThat(paymentRepository.findAll()).isEmpty();
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("payment_intent.succeeded marks payment SUCCESS and emits outbox event atomically")
+        void processWebhook_paymentIntentSucceeded_marksSuccessAndPersistsOutbox() throws Exception {
+            savePendingPayment();
 
             ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "succeeded", null);
             StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.succeeded", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
 
-            stripeWebhookService.processWebhook(payload);
+            stripeWebhookService.processWebhook(signature, rawPayload);
 
             assertThat(processedWebhookEventRepository.existsById(eventId)).isTrue();
 
@@ -96,27 +182,65 @@ class StripeWebhookServiceIT implements WithPostgres {
         }
 
         @Test
-        @DisplayName("payment_intent.payment_failed with last_payment_error marks payment FAILED and emits outbox event")
-        void processWebhook_paymentIntentFailed_withError_marksFailedAndPersistsOutbox() {
-            Payment initialPayment = new Payment()
-                  .setOrderId(orderId)
-                  .setPaymentIntentId(paymentIntentId)
-                  .setUserId(userId)
-                  .setTotalAmountCents(totalAmountCents)
-                  .setStatus(PaymentStatus.PENDING);
-            paymentRepository.saveAndFlush(initialPayment);
+        @DisplayName("payment_intent.payment_failed records failed attempt and failure reason without changing status or emitting outbox event")
+        void processWebhook_paymentIntentFailed_withError_recordsAttemptAndLeavesPaymentPending() throws Exception {
+            savePendingPayment();
 
             PaymentError error = new PaymentError("card_declined", "Card was declined");
             ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "failed", error);
             StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.payment_failed", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
 
-            stripeWebhookService.processWebhook(payload);
+            stripeWebhookService.processWebhook(signature, rawPayload);
+
+            assertThat(processedWebhookEventRepository.existsById(eventId)).isTrue();
+
+            Payment updatedPayment = paymentWithAttempts();
+            assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(updatedPayment.getFailureReason()).isEqualTo("Card was declined");
+            assertThat(updatedPayment.getAttempts()).hasSize(1);
+            assertThat(updatedPayment.getAttempts().getFirst().getStatus()).isEqualTo(PaymentAttemptStatus.FAILED);
+            assertThat(updatedPayment.getAttempts().getFirst().getErrorCode()).isEqualTo("card_declined");
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("payment_intent.payment_failed without last_payment_error records attempt with default reason")
+        void processWebhook_paymentIntentFailed_withoutError_recordsAttemptWithDefaultReason() throws Exception {
+            savePendingPayment();
+
+            ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "failed", null);
+            StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.payment_failed", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
+
+            stripeWebhookService.processWebhook(signature, rawPayload);
+
+            Payment updatedPayment = paymentWithAttempts();
+            assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(updatedPayment.getFailureReason()).isEqualTo("Payment authorization failed");
+            assertThat(updatedPayment.getAttempts()).hasSize(1);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("payment_intent.canceled marks payment FAILED and emits outbox event")
+        void processWebhook_paymentIntentCanceled_marksFailedAndPersistsOutbox() throws Exception {
+            savePendingPayment();
+
+            PaymentError error = new PaymentError("abandoned", "Customer canceled payment");
+            ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "canceled", error);
+            StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.canceled", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
+
+            stripeWebhookService.processWebhook(signature, rawPayload);
 
             assertThat(processedWebhookEventRepository.existsById(eventId)).isTrue();
 
             Payment updatedPayment = paymentRepository.findAll().getFirst();
             assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-            assertThat(updatedPayment.getFailureReason()).isEqualTo("Card was declined");
+            assertThat(updatedPayment.getFailureReason()).isEqualTo("Customer canceled payment");
 
             List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
             assertThat(outboxEvents).hasSize(1);
@@ -129,42 +253,16 @@ class StripeWebhookServiceIT implements WithPostgres {
         }
 
         @Test
-        @DisplayName("payment_intent.payment_failed without last_payment_error falls back to default reason")
-        void processWebhook_paymentIntentFailed_withoutError_marksFailedWithDefaultReason() {
-            Payment initialPayment = new Payment()
-                  .setOrderId(orderId)
-                  .setPaymentIntentId(paymentIntentId)
-                  .setUserId(userId)
-                  .setTotalAmountCents(totalAmountCents)
-                  .setStatus(PaymentStatus.PENDING);
-            paymentRepository.saveAndFlush(initialPayment);
-
-            ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "failed", null);
-            StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.payment_failed", new Data(objectData));
-
-            stripeWebhookService.processWebhook(payload);
-
-            Payment updatedPayment = paymentRepository.findAll().getFirst();
-            assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-            assertThat(updatedPayment.getFailureReason()).isEqualTo("Payment authorization failed");
-        }
-
-        @Test
         @DisplayName("duplicate webhook delivery catches unique constraint and exits gracefully without re-processing")
-        void processWebhook_duplicateEvent_swallowsDataIntegrityExceptionAndExitsCleanly() {
-            Payment initialPayment = new Payment()
-                  .setOrderId(orderId)
-                  .setPaymentIntentId(paymentIntentId)
-                  .setUserId(userId)
-                  .setTotalAmountCents(totalAmountCents)
-                  .setStatus(PaymentStatus.PENDING);
-            paymentRepository.saveAndFlush(initialPayment);
+        void processWebhook_duplicateEvent_swallowsDataIntegrityExceptionAndExitsCleanly() throws Exception {
+            savePendingPayment();
 
             ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "succeeded", null);
             StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.succeeded", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
 
-            stripeWebhookService.processWebhook(payload);
-            stripeWebhookService.processWebhook(payload);
+            stripeWebhookService.processWebhook(signature, rawPayload);
+            stripeWebhookService.processWebhook(signature, rawPayload);
 
             assertThat(processedWebhookEventRepository.findAll()).hasSize(1);
             assertThat(paymentRepository.findAll()).hasSize(1);
@@ -174,16 +272,11 @@ class StripeWebhookServiceIT implements WithPostgres {
         @Test
         @DisplayName("concurrent webhook deliveries execute idempotency lock and process state change exactly once")
         void processWebhook_concurrentRequests_guaranteesSingleExecution() throws Exception {
-            Payment initialPayment = new Payment()
-                  .setOrderId(orderId)
-                  .setPaymentIntentId(paymentIntentId)
-                  .setUserId(userId)
-                  .setTotalAmountCents(totalAmountCents)
-                  .setStatus(PaymentStatus.PENDING);
-            paymentRepository.saveAndFlush(initialPayment);
+            savePendingPayment();
 
             ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "succeeded", null);
             StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "payment_intent.succeeded", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
 
             int threadCount = 2;
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -195,7 +288,7 @@ class StripeWebhookServiceIT implements WithPostgres {
                 futures.add(executor.submit(() -> {
                     try {
                         barrier.await();
-                        stripeWebhookService.processWebhook(payload);
+                        stripeWebhookService.processWebhook(signature, rawPayload);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     } catch (BrokenBarrierException e) {
@@ -217,24 +310,14 @@ class StripeWebhookServiceIT implements WithPostgres {
 
         @Test
         @DisplayName("unhandled webhook event registers idempotency and exits cleanly without state changes")
-        void processWebhook_unhandledEventType_registersIdempotencyAndSkipsProcessing() {
+        void processWebhook_unhandledEventType_registersIdempotencyAndSkipsProcessing() throws Exception {
             ObjectData objectData = new ObjectData(paymentIntentId, totalAmountCents, "usd", "active", null);
             StripeWebhookPayload payload = new StripeWebhookPayload(eventId, "customer.created", new Data(objectData));
+            String rawPayload = objectMapper.writeValueAsString(payload);
 
-            stripeWebhookService.processWebhook(payload);
+            stripeWebhookService.processWebhook(signature, rawPayload);
 
             assertThat(processedWebhookEventRepository.existsById(eventId)).isTrue();
-            assertThat(paymentRepository.findAll()).isEmpty();
-            assertThat(outboxEventRepository.findAll()).isEmpty();
-        }
-
-        @Test
-        @DisplayName("null payload throws NullPointerException")
-        void processWebhook_nullPayload_throwsNullPointerException() {
-            assertThatThrownBy(() -> stripeWebhookService.processWebhook(null))
-                  .isInstanceOf(NullPointerException.class);
-
-            assertThat(processedWebhookEventRepository.findAll()).isEmpty();
             assertThat(paymentRepository.findAll()).isEmpty();
             assertThat(outboxEventRepository.findAll()).isEmpty();
         }

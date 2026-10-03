@@ -1,5 +1,7 @@
 package com.echcherqaoui.orderflow.payment.mockstripe.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public record MockStripeWebhookPayload(String id,
                                        String type,
                                        Data data) {
@@ -10,6 +12,7 @@ public record MockStripeWebhookPayload(String id,
                              Long amount,
                              String currency,
                              String status,
+                             @JsonProperty("last_payment_error")
                              PaymentError lastPaymentError) {
     }
 
