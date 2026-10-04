@@ -21,3 +21,10 @@ message CancelPaymentCommand {
   string payment_intent_id = 3;
   string reason = 4;
 }
+
+message RefundPaymentCommand {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string payment_intent_id = 3;
+  string reason = 4;
+}
