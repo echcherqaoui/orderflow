@@ -7,6 +7,7 @@ import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInvento
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Message;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
@@ -440,6 +441,93 @@ class OutboxWriterTest {
         @DisplayName("null reason throws NullPointerException")
         void publishOrderCancelledEvent_nullReason_throwsNullPointerException() {
             assertThatThrownBy(() -> outboxWriter.publishOrderCancelledEvent(orderId, causationMessageId, null))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("reason is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishRefundPaymentCommand()")
+    class PublishRefundPaymentCommand {
+
+        @Test
+        @DisplayName("successful invocation signs command with payment intent and reason and saves outbox event")
+        void publishRefundPaymentCommand_success_buildsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class)))
+                  .willReturn(dummySignature);
+            given(serializer.serialize(eq(PAYMENT_TOPIC), any(Message.class)))
+                  .willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.publishRefundPaymentCommand(orderId, causationMessageId, paymentIntentId, reason);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] params = signatureParamsCaptor.getValue();
+
+            assertThat(params).hasSize(6);
+            assertThat(UUID.fromString(params[0])).isNotNull();
+            assertThat(params[1]).isEqualTo(orderId.toString());
+            assertThat(Long.parseLong(params[2])).isGreaterThan(0L);
+            assertThat(params[3]).isEqualTo(orderId.toString());
+            assertThat(params[4]).isEqualTo(paymentIntentId);
+            assertThat(params[5]).isEqualTo(reason);
+
+            then(serializer).should().serialize(eq(PAYMENT_TOPIC), messageCaptor.capture());
+            RefundPaymentCommand command = (RefundPaymentCommand) messageCaptor.getValue();
+
+            assertThat(command.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(command.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(command.getReason()).isEqualTo(reason);
+            assertThat(command.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(command.getMetadata().getCausationId()).isEqualTo(causationMessageId);
+            assertThat(command.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getAggregateType()).isEqualTo("payment.commands");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("RefundPaymentCommand");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+        }
+
+        @Test
+        @DisplayName("null orderId throws NullPointerException")
+        void publishRefundPaymentCommand_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishRefundPaymentCommand(null, causationMessageId, paymentIntentId, reason))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("orderId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("null triggerEventId throws NullPointerException")
+        void publishRefundPaymentCommand_nullTriggerEventId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishRefundPaymentCommand(orderId, null, paymentIntentId, reason))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("triggerEventId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("null paymentIntentId throws NullPointerException")
+        void publishRefundPaymentCommand_nullPaymentIntentId_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishRefundPaymentCommand(orderId, causationMessageId, null, reason))
+                  .isInstanceOf(NullPointerException.class)
+                  .hasMessage("paymentIntentId is marked non-null but is null");
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+
+        @Test
+        @DisplayName("null reason throws NullPointerException")
+        void publishRefundPaymentCommand_nullReason_throwsNullPointerException() {
+            assertThatThrownBy(() -> outboxWriter.publishRefundPaymentCommand(orderId, causationMessageId, paymentIntentId, null))
                   .isInstanceOf(NullPointerException.class)
                   .hasMessage("reason is marked non-null but is null");
 

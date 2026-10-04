@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.order.service;
 
 import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
+import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
@@ -497,6 +498,65 @@ class OrderSagaServiceTest {
             assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
             then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
             verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+    }
+
+    @Nested
+    @DisplayName("handleInventoryConfirmationFailed()")
+    class HandleInventoryConfirmationFailed {
+
+        @Test
+        @DisplayName("valid step CONFIRMING_INVENTORY: transitions status to CANCELLING, step to REVERSING_PAYMENT, logs saga transition, and publishes refund command and local domain event")
+        void handleInventoryConfirmationFailed_validStep_initiatesPaymentRefundCompensation() {
+            Order existingOrder = createOrder(SagaStep.CONFIRMING_INVENTORY, OrderStatus.PENDING);
+            String paymentIntentId = "pi_123456789";
+            existingOrder.setPaymentIntentId(paymentIntentId);
+            String reason = "OUT_OF_STOCK";
+
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handleInventoryConfirmationFailed(orderId, cartId, reason, triggerEventId);
+
+            assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(existingOrder.getCancellationReason()).isEqualTo(CancellationReason.RESERVATION_EXPIRED);
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
+
+            then(orderRepository).should().save(existingOrder);
+            then(sagaStepLogger).should().logTransition(
+                  eq(orderId),
+                  argThat(closed -> closed != null && closed.step() == SagaStep.CONFIRMING_INVENTORY && closed.status() == SagaStepStatus.FAILED),
+                  argThat(opened -> opened != null && opened.step() == SagaStep.REVERSING_PAYMENT && opened.status() == SagaStepStatus.STARTED),
+                  eq("InventoryConfirmationFailedEvent"),
+                  eq(triggerEventId)
+            );
+            then(outboxWriter).should().publishRefundPaymentCommand(orderId, triggerEventId, paymentIntentId, reason);
+            then(eventPublisher).should().publishEvent(new InventoryConfirmationFailedOrderEvent(orderId, reason));
+        }
+
+        @Test
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handleInventoryConfirmationFailed_staleStep_ignoresEvent() {
+            Order existingOrder = createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handleInventoryConfirmationFailed(orderId, cartId, "OUT_OF_STOCK", triggerEventId);
+
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
+            assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.PENDING);
+            then(orderRepository).should(never()).save(any());
+            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("missing order: throws ResourceNotFoundException and performs no side effects")
+        void handleInventoryConfirmationFailed_notFound_throwsResourceNotFoundException() {
+            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> orderSagaService.handleInventoryConfirmationFailed(orderId, cartId, "OUT_OF_STOCK", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+
+            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
         }
     }
 }

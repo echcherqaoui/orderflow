@@ -548,4 +548,68 @@ class OrderSagaServiceIT implements WithPostgres {
             assertThat(findOutboxRows(order.getId())).isEmpty();
         }
     }
+
+    @Nested
+    @DisplayName("handleInventoryConfirmationFailed()")
+    class HandleInventoryConfirmationFailed {
+
+        @Test
+        @Transactional
+        @DisplayName("valid step CONFIRMING_INVENTORY updates status CANCELLING, step REVERSING_PAYMENT, and writes RefundPaymentCommand outbox row")
+        void handleInventoryConfirmationFailed_validStep_initiatesPaymentRefundCompensation() {
+            when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
+                  .thenReturn(new byte[]{0, 1, 2});
+
+            Order order = createAndPersistOrder(SagaStep.CONFIRMING_INVENTORY, OrderStatus.PENDING);
+            order.setPaymentIntentId("pi_123456789");
+            entityManager.merge(order);
+
+            String cartId = "cart_123";
+            String reason = "OUT_OF_STOCK";
+            String triggerEventId = UUID.randomUUID().toString();
+
+            orderSagaService.handleInventoryConfirmationFailed(order.getId(), cartId, reason, triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(updated.getCancellationReason()).isEqualTo(CancellationReason.RESERVATION_EXPIRED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
+
+            List<OrderSagaHistory> history = findSagaHistory(order.getId());
+            assertThat(history).hasSize(2);
+            assertThat(history.get(0).getStep()).isEqualTo(SagaStep.CONFIRMING_INVENTORY);
+            assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.FAILED);
+            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
+            assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.STARTED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(1);
+            assertThat(outboxRows.getFirst().getAggregateType()).isEqualTo("payment.commands");
+            assertThat(outboxRows.getFirst().getEventType()).isEqualTo("RefundPaymentCommand");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale InventoryConfirmationFailedEvent for unexpected saga step is ignored without side effects")
+        void handleInventoryConfirmationFailed_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            int initialHistorySize = findSagaHistory(order.getId()).size();
+
+            orderSagaService.handleInventoryConfirmationFailed(
+                  order.getId(), "cart_123", "OUT_OF_STOCK", UUID.randomUUID().toString()
+            );
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.PENDING);
+            assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
+            assertThat(findOutboxRows(order.getId())).isEmpty();
+        }
+    }
 }

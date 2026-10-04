@@ -1,5 +1,6 @@
 package com.echcherqaoui.orderflow.order.listener;
 
+import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
@@ -170,6 +171,34 @@ class OrderSagaEventListenerTest {
         @DisplayName("null event throws NullPointerException")
         void handleReservationExtended_nullEvent_throwsNullPointerException() {
             assertThatThrownBy(() -> listener.handleReservationExtended(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("handleInventoryConfirmationFailed()")
+    class HandleInventoryConfirmationFailed {
+
+        @Test
+        @DisplayName("sends ORDER_FAILED_OUT_OF_STOCK_REFUNDING status and keeps emitter open")
+        void handleInventoryConfirmationFailed_sendsOrderFailedStatusAndKeepsOpen() {
+            InventoryConfirmationFailedOrderEvent event = new InventoryConfirmationFailedOrderEvent(orderId, "OUT_OF_STOCK");
+
+            listener.handleInventoryConfirmationFailed(event);
+
+            then(emitterRegistry).should().sendAndKeepOpen(
+                  orderId,
+                  Map.of(
+                        "status", "ORDER_FAILED_OUT_OF_STOCK_REFUNDING",
+                        "reason", "OUT_OF_STOCK"
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handleInventoryConfirmationFailed_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handleInventoryConfirmationFailed(null))
                   .isInstanceOf(NullPointerException.class);
         }
     }
