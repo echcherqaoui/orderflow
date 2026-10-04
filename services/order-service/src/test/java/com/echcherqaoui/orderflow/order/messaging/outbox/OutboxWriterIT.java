@@ -1,10 +1,13 @@
 package com.echcherqaoui.orderflow.order.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
 import com.echcherqaoui.orderflow.order.support.WithKafka;
 import com.echcherqaoui.orderflow.order.support.WithPostgres;
 import com.google.protobuf.Message;
@@ -38,13 +41,46 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
     @Autowired
     private EntityManager entityManager;
 
+    private OutboxEvent findAndAssertSingleOutboxEvent(UUID orderId, String aggregateType, String eventType) {
+        entityManager.flush();
+        entityManager.clear();
+
+        List<OutboxEvent> rows = entityManager
+              .createQuery(
+                    "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
+                    OutboxEvent.class
+              )
+              .setParameter("orderId", orderId.toString())
+              .setParameter("aggregateType", aggregateType)
+              .getResultList();
+
+        assertThat(rows).hasSize(1);
+        OutboxEvent event = rows.getFirst();
+
+        assertThat(event.getEventType()).isEqualTo(eventType);
+        assertThat(event.getPayload()).isNotEmpty();
+        return event;
+    }
+
+    private <T extends Message> T deserialize(byte[] payload, Class<T> targetClass) {
+        Map<String, Object> deserializerConfig = new HashMap<>();
+        deserializerConfig.put("schema.registry.url",
+              "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081));
+        deserializerConfig.put("specific.protobuf.value.type", targetClass);
+
+        try (KafkaProtobufDeserializer<T> deserializer = new KafkaProtobufDeserializer<>()) {
+            deserializer.configure(deserializerConfig, false);
+            return deserializer.deserialize("outbox-serialization-context", payload);
+        }
+    }
+
     @Nested
-    @DisplayName("Publishing Commands")
-    class PublishingCommands {
+    @DisplayName("publishChargePaymentCommand()")
+    class PublishChargePaymentCommand {
 
         @Test
         @Transactional
-        @DisplayName("publishChargePaymentCommand persists wire-format outbox row decodable to ChargePaymentCommand")
+        @DisplayName("persists wire-format outbox row decodable to ChargePaymentCommand")
         void publishChargePaymentCommand_persistsRealSerializedPayload() {
             UUID orderId = UUID.randomUUID();
             String userId = "user@example.com";
@@ -63,8 +99,21 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
         }
 
         @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishChargePaymentCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            assertThatThrownBy(() -> outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 1000L))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishReleaseInventoryCommand()")
+    class PublishReleaseInventoryCommand {
+
+        @Test
         @Transactional
-        @DisplayName("publishReleaseInventoryCommand persists wire-format outbox row decodable to ReleaseInventoryCommand")
+        @DisplayName("persists wire-format outbox row decodable to ReleaseInventoryCommand")
         void publishReleaseInventoryCommand_persistsRealSerializedPayload() {
             UUID orderId = UUID.randomUUID();
             String causationMessageId = UUID.randomUUID().toString();
@@ -82,8 +131,23 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
         }
 
         @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishReleaseInventoryCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> outboxWriter.publishReleaseInventoryCommand(orderId, triggerEventId, "cart-1"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishExtendReservationCommand()")
+    class PublishExtendReservationCommand {
+
+        @Test
         @Transactional
-        @DisplayName("publishExtendReservationCommand persists wire-format outbox row decodable to ExtendReservationCommand")
+        @DisplayName("persists wire-format outbox row decodable to ExtendReservationCommand")
         void publishExtendReservationCommand_persistsRealSerializedPayload() {
             UUID orderId = UUID.randomUUID();
             String causationMessageId = UUID.randomUUID().toString();
@@ -102,8 +166,23 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
         }
 
         @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishExtendReservationCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> outboxWriter.publishExtendReservationCommand(orderId, triggerEventId, "cart-1"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishCancelPaymentCommand()")
+    class PublishCancelPaymentCommand {
+
+        @Test
         @Transactional
-        @DisplayName("publishCancelPaymentCommand persists wire-format outbox row decodable to CancelPaymentCommand")
+        @DisplayName("persists wire-format outbox row decodable to CancelPaymentCommand")
         void publishCancelPaymentCommand_persistsRealSerializedPayload() {
             UUID orderId = UUID.randomUUID();
             String causationMessageId = UUID.randomUUID().toString();
@@ -122,6 +201,128 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
             assertThat(decoded.getMetadata().getCausationId()).isEqualTo(causationMessageId);
             assertThat(decoded.getMetadata().getSignature()).isNotBlank();
         }
+
+        @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishCancelPaymentCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(orderId, triggerEventId, "pi_123", "REASON"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishConfirmReservationCommand()")
+    class PublishConfirmReservationCommand {
+
+        @Test
+        @Transactional
+        @DisplayName("persists wire-format outbox row decodable to ConfirmReservationCommand")
+        void publishConfirmReservationCommand_persistsRealSerializedPayload() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            String cartId = "cart-789";
+
+            outboxWriter.publishConfirmReservationCommand(orderId, triggerEventId, cartId);
+
+            OutboxEvent event = findAndAssertSingleOutboxEvent(orderId, "inventory.commands", "ConfirmReservationCommand");
+            ConfirmReservationCommand decoded = deserialize(event.getPayload(), ConfirmReservationCommand.class);
+
+            assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getCartId()).isEqualTo(cartId);
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+        }
+
+        @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishConfirmReservationCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> outboxWriter.publishConfirmReservationCommand(orderId, triggerEventId, "cart-1"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishRefundPaymentCommand()")
+    class PublishRefundPaymentCommand {
+
+        @Test
+        @Transactional
+        @DisplayName("persists wire-format outbox row decodable to RefundPaymentCommand")
+        void publishRefundPaymentCommand_persistsRealSerializedPayload() {
+            UUID orderId = UUID.randomUUID();
+            String causationMessageId = UUID.randomUUID().toString();
+            String paymentIntentId = "pi_99887766";
+            String reason = "OUT_OF_STOCK";
+
+            outboxWriter.publishRefundPaymentCommand(orderId, causationMessageId, paymentIntentId, reason);
+
+            OutboxEvent event = findAndAssertSingleOutboxEvent(orderId, "payment.commands", "RefundPaymentCommand");
+            RefundPaymentCommand decoded = deserialize(event.getPayload(), RefundPaymentCommand.class);
+
+            assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(decoded.getReason()).isEqualTo(reason);
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(causationMessageId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+        }
+
+        @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishRefundPaymentCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> outboxWriter.publishRefundPaymentCommand(orderId, triggerEventId, "pi_123", "REASON"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishOrderCancelledEvent()")
+    class PublishOrderCancelledEvent {
+
+        @Test
+        @Transactional
+        @DisplayName("persists wire-format outbox row decodable to OrderCancelledIntegrationEvent")
+        void publishOrderCancelledEvent_persistsRealSerializedPayload() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            String reason = "RESERVATION_EXPIRED";
+
+            outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, reason);
+
+            OutboxEvent event = findAndAssertSingleOutboxEvent(orderId, "order.events", "OrderCancelledIntegrationEvent");
+            OrderCancelledIntegrationEvent decoded = deserialize(event.getPayload(), OrderCancelledIntegrationEvent.class);
+
+            assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getReason()).isEqualTo(reason);
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+        }
+
+        @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishOrderCancelledEvent_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, "REASON"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("Transactional Integrity")
+    class TransactionalIntegrity {
 
         @Test
         @Transactional
@@ -148,47 +349,12 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
             assertThat(events.get(0).getEventType()).isEqualTo("ChargePaymentCommand");
             assertThat(events.get(1).getEventType()).isEqualTo("ReleaseInventoryCommand");
         }
-    }
-
-    @Nested
-    @DisplayName("Transactional Integrity")
-    class TransactionalIntegrity {
-
-        private final UUID orderId = UUID.randomUUID();
-        private final String reservationId = UUID.randomUUID().toString();
-
-        @Test
-        @DisplayName("publishChargePaymentCommand without an active transaction throws IllegalTransactionStateException")
-        void publishChargePaymentCommand_noTransaction_throwsException() {
-            assertThatThrownBy(() -> outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 1000L))
-                  .isInstanceOf(IllegalTransactionStateException.class);
-        }
-
-        @Test
-        @DisplayName("publishReleaseInventoryCommand without an active transaction throws IllegalTransactionStateException")
-        void publishReleaseInventoryCommand_noTransaction_throwsException() {
-            assertThatThrownBy(() -> outboxWriter.publishReleaseInventoryCommand(orderId, reservationId, "cart-1"))
-                  .isInstanceOf(IllegalTransactionStateException.class);
-        }
-
-        @Test
-        @DisplayName("publishExtendReservationCommand without an active transaction throws IllegalTransactionStateException")
-        void publishExtendReservationCommand_noTransaction_throwsException() {
-            assertThatThrownBy(() -> outboxWriter.publishExtendReservationCommand(orderId, reservationId, "cart-1"))
-                  .isInstanceOf(IllegalTransactionStateException.class);
-        }
-
-        @Test
-        @DisplayName("publishCancelPaymentCommand without an active transaction throws IllegalTransactionStateException")
-        void publishCancelPaymentCommand_noTransaction_throwsException() {
-            assertThatThrownBy(() -> outboxWriter.publishCancelPaymentCommand(orderId, reservationId, "pi_123", "REASON"))
-                  .isInstanceOf(IllegalTransactionStateException.class);
-        }
 
         @Test
         @Transactional
         @DisplayName("transaction rollback discards written outbox entries")
         void transactionRollback_discardsOutboxEntries() {
+            UUID orderId = UUID.randomUUID();
             outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 2000L);
             entityManager.flush();
 
@@ -202,39 +368,6 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
                   .getResultList();
 
             assertThat(rows).isEmpty();
-        }
-    }
-
-    private OutboxEvent findAndAssertSingleOutboxEvent(UUID orderId, String aggregateType, String eventType) {
-        entityManager.flush();
-        entityManager.clear();
-
-        List<OutboxEvent> rows = entityManager
-              .createQuery(
-                    "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
-                    OutboxEvent.class
-              )
-              .setParameter("orderId", orderId.toString())
-              .setParameter("aggregateType", aggregateType)
-              .getResultList();
-
-        assertThat(rows).hasSize(1);
-        OutboxEvent event = rows.getFirst(); // Use rows.get(0) if below Java 21
-
-        assertThat(event.getEventType()).isEqualTo(eventType);
-        assertThat(event.getPayload()).isNotEmpty();
-        return event;
-    }
-
-    private <T extends Message> T deserialize(byte[] payload, Class<T> targetClass) {
-        Map<String, Object> deserializerConfig = new HashMap<>();
-        deserializerConfig.put("schema.registry.url",
-              "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081));
-        deserializerConfig.put("specific.protobuf.value.type", targetClass);
-
-        try (KafkaProtobufDeserializer<T> deserializer = new KafkaProtobufDeserializer<>()) {
-            deserializer.configure(deserializerConfig, false);
-            return deserializer.deserialize("outbox-serialization-context", payload);
         }
     }
 }

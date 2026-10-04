@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.order.service;
 
 import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
+import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
@@ -254,6 +255,31 @@ public class OrderSagaService {
         eventPublisher.publishEvent(new ReservationExtendedOrderEvent(orderId, newExpiresAt));
     }
 
+    @Transactional
+    public void handleInventoryConfirmationFailed(@lombok.NonNull UUID orderId,
+                                                  @lombok.NonNull String cartId,
+                                                  @lombok.NonNull String reason,
+                                                  @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, "InventoryConfirmationFailedEvent")) return;
+
+        order.setStatus(OrderStatus.CANCELLING)
+              .setCancellationReason(RESERVATION_EXPIRED)
+              .setCurrentSagaStep(REVERSING_PAYMENT);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.failed(CONFIRMING_INVENTORY, Map.of("reason", reason)),
+              SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("reason", reason)),
+              "InventoryConfirmationFailedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishRefundPaymentCommand(orderId, triggerEventId, order.getPaymentIntentId(), reason);
+        eventPublisher.publishEvent(new InventoryConfirmationFailedOrderEvent(orderId, reason));
+    }
 
     @Transactional
     public void handlePaymentCharged(@lombok.NonNull UUID orderId,

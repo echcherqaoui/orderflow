@@ -1,5 +1,6 @@
 package com.echcherqaoui.orderflow.order.listener;
 
+import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
@@ -80,6 +81,18 @@ public class OrderSagaEventListener {
               Map.of(
                     "status", "PAYMENT_SESSION_ACTIVE",
                     "expiresAt", event.newExpiresAt().getEpochSecond()
+              )
+        );
+    }
+
+    @Async("taskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleInventoryConfirmationFailed(@NonNull InventoryConfirmationFailedOrderEvent event) {
+        emitterRegistry.sendAndKeepOpen(
+              event.orderId(),
+              Map.of(
+                    "status", "ORDER_FAILED_OUT_OF_STOCK_REFUNDING",
+                    "reason", event.reason()
               )
         );
     }

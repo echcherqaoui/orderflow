@@ -9,6 +9,7 @@ import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInvento
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.echcherqaoui.orderflow.util.InstantConverter;
 import com.google.protobuf.Message;
@@ -184,7 +185,7 @@ public class OutboxWriter {
                                                  @lombok.NonNull String cartId) {
         String orderIdStr = orderId.toString();
 
-        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, cartId);
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, orderIdStr, cartId);
 
         ConfirmReservationCommand command = ConfirmReservationCommand.newBuilder()
               .setMetadata(metadata)
@@ -193,5 +194,30 @@ public class OutboxWriter {
               .build();
 
         persist(command, orderIdStr, INVENTORY_COMMANDS_AGGREGATE);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishRefundPaymentCommand(@lombok.NonNull UUID orderId,
+                                            @lombok.NonNull String triggerEventId,
+                                            @lombok.NonNull String paymentIntentId,
+                                            @lombok.NonNull String reason) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              triggerEventId,
+              orderIdStr,
+              paymentIntentId,
+              reason
+        );
+
+        RefundPaymentCommand command = RefundPaymentCommand.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setPaymentIntentId(paymentIntentId)
+              .setReason(reason)
+              .build();
+
+        persist(command, orderIdStr, PAYMENT_COMMANDS_AGGREGATE);
     }
 }

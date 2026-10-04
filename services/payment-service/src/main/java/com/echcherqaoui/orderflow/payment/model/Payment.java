@@ -1,6 +1,5 @@
 package com.echcherqaoui.orderflow.payment.model;
 
-import com.echcherqaoui.orderflow.payment.domain.PaymentAttempt;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
