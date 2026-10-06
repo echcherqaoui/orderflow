@@ -1,9 +1,12 @@
 package com.echcherqaoui.orderflow.payment.service;
 
-import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
-import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.dto.PrepareRefundResult;
+import com.echcherqaoui.orderflow.payment.dto.RefundCreateParams;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayPermanentException;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -112,5 +115,51 @@ public class PaymentService {
               reason != null ? reason : "Compensation triggered",
               triggerEventId
         );
+    }
+
+    public void processRefund(UUID orderId,
+                              String paymentIntentId,
+                              String reason,
+                              String triggerEventId) {
+
+        // Atomic Claim / Status Verification
+        PrepareRefundResult prepareResult = persistenceService.prepareRefund(orderId);
+
+        switch (prepareResult) {
+            case TERMINAL -> {
+                log.info("Refund already in terminal state for orderId={}. Aborting.", orderId);
+                return;
+            }
+            case RETRY_IN_FLIGHT ->
+                log.info(
+                      "Detected in-flight/retried refund for orderId={}. Proceeding to PSP with triggerEventId={}",
+                      orderId,
+                      triggerEventId
+                );
+            case INITIAL_CLAIM ->
+                log.info("Acquired initial refund lock for orderId={}.", orderId);
+        }
+
+        RefundCreateParams params = new RefundCreateParams(paymentIntentId, reason, triggerEventId);
+
+        // External PSP Network Call
+        try {
+            paymentGateway.refundPayment(params);
+        } catch (PaymentGatewayTransientException ex) {
+            log.warn("Transient PSP failure calling refund for orderId={}: {}", orderId, ex.getMessage());
+            throw ex; // Triggers Kafka retry; prepareRefund will allow attempt #2
+        } catch (PaymentGatewayPermanentException ex) {
+            log.error("Permanent PSP refund execution failed for orderId={}, paymentIntentId={}", orderId, paymentIntentId, ex);
+            persistenceService.failRefund(orderId, paymentIntentId, ex.getMessage(), triggerEventId);
+            return;
+        }
+
+        // PSP Succeeded -> Commit DB success state & Outbox event
+        try {
+            persistenceService.completeRefund(orderId, paymentIntentId, triggerEventId);
+        } catch (Exception ex) {
+            log.error("CRITICAL: PSP refund succeeded on gateway, but local completeRefund failed for orderId={}", orderId, ex);
+            throw ex; // Re-throw to prevent calling failRefund() when PSP actually succeeded
+        }
     }
 }

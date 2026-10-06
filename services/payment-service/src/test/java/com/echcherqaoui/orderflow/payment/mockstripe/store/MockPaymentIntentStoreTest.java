@@ -1,14 +1,16 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.store;
 
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.TransitionResult;
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntent;
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.CANCELED;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.SUCCEEDED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.CANCELED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -207,15 +209,17 @@ class MockPaymentIntentStoreTest {
         void recordAttempt_invalidClientSecret_throwsIllegalArgumentException() {
             MockPaymentIntent initial = store.getOrCreate(IDEMPOTENCY_KEY, AMOUNT_CENTS);
 
+            String paymentIntentId = initial.paymentIntentId();
+
             assertThatThrownBy(() -> store.recordAttempt(
-                  initial.paymentIntentId(),
+                  paymentIntentId,
                   "invalid_secret",
                   true,
                   null,
                   MAX_ALLOWED_ATTEMPTS
             ))
                   .isInstanceOf(IllegalArgumentException.class)
-                  .hasMessage("Invalid client_secret provided for payment_intent: " + initial.paymentIntentId());
+                  .hasMessage("Invalid client_secret provided for payment_intent: " + paymentIntentId);
         }
 
         @Test
@@ -247,6 +251,77 @@ class MockPaymentIntentStoreTest {
         @DisplayName("throws NullPointerException when paymentIntentId is null")
         void remove_nullPaymentIntentId_throwsNullPointerException() {
             assertThatThrownBy(() -> store.remove(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("refund()")
+    class Refund {
+
+        @Test
+        @DisplayName("successfully transitions status from SUCCEEDED to REFUNDED")
+        void refund_succeededIntent_transitionsToRefunded() {
+            MockPaymentIntent initial = store.getOrCreate(IDEMPOTENCY_KEY, AMOUNT_CENTS);
+            store.recordAttempt(initial.paymentIntentId(), initial.clientSecret(), true, null, MAX_ALLOWED_ATTEMPTS);
+
+            MockPaymentIntent refunded = store.refund(initial.paymentIntentId());
+
+            assertThat(refunded).isNotNull();
+            assertThat(refunded.status()).isEqualTo(MockPaymentIntentStatus.REFUNDED);
+        }
+
+        @Test
+        @DisplayName("replays idempotently without exception when intent is already REFUNDED")
+        void refund_alreadyRefunded_returnsSameIntentWithoutError() {
+            MockPaymentIntent initial = store.getOrCreate(IDEMPOTENCY_KEY, AMOUNT_CENTS);
+            store.recordAttempt(initial.paymentIntentId(), initial.clientSecret(), true, null, MAX_ALLOWED_ATTEMPTS);
+
+            MockPaymentIntent firstRefund = store.refund(initial.paymentIntentId());
+            MockPaymentIntent secondRefund = store.refund(initial.paymentIntentId());
+
+            assertThat(secondRefund).isNotNull();
+            assertThat(secondRefund.status()).isEqualTo(MockPaymentIntentStatus.REFUNDED);
+            assertThat(secondRefund).isEqualTo(firstRefund);
+        }
+
+        @Test
+        @DisplayName("throws IllegalStateException when intent is in REQUIRES_PAYMENT_METHOD status")
+        void refund_requiresPaymentMethodIntent_throwsIllegalStateException() {
+            MockPaymentIntent initial = store.getOrCreate(IDEMPOTENCY_KEY, AMOUNT_CENTS);
+
+            String paymentIntentId = initial.paymentIntentId();
+
+            assertThatThrownBy(() -> store.refund(paymentIntentId))
+                  .isInstanceOf(IllegalStateException.class)
+                  .hasMessage("Cannot refund intent in status REQUIRES_PAYMENT_METHOD");
+        }
+
+        @Test
+        @DisplayName("throws IllegalStateException when intent is in CANCELED status")
+        void refund_canceledIntent_throwsIllegalStateException() {
+            MockPaymentIntent initial = store.getOrCreate(IDEMPOTENCY_KEY, AMOUNT_CENTS);
+            store.recordAttempt(initial.paymentIntentId(), initial.clientSecret(), false, "fraudulent", MAX_ALLOWED_ATTEMPTS);
+
+            String paymentIntentId = initial.paymentIntentId();
+
+            assertThatThrownBy(() -> store.refund(paymentIntentId))
+                  .isInstanceOf(IllegalStateException.class)
+                  .hasMessage("Cannot refund intent in status CANCELED");
+        }
+
+        @Test
+        @DisplayName("returns null when paymentIntentId does not exist in store")
+        void refund_nonExistentIntent_returnsNull() {
+            MockPaymentIntent result = store.refund("pi_mock_non_existent");
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("throws NullPointerException when paymentIntentId is null")
+        void refund_nullPaymentIntentId_throwsNullPointerException() {
+            assertThatThrownBy(() -> store.refund(null))
                   .isInstanceOf(NullPointerException.class);
         }
     }

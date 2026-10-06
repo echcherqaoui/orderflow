@@ -11,7 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.INVALID_WEBHOOK_SIGNATURE;
+import static com.echcherqaoui.orderflow.payment.exception.code.PaymentErrorCode.INVALID_WEBHOOK_SIGNATURE;
 
 
 @Slf4j

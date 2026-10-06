@@ -1,6 +1,8 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.controller;
 
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentRequest;
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntent;
+import com.echcherqaoui.orderflow.payment.mockstripe.store.MockPaymentIntentStore;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

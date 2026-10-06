@@ -1,15 +1,19 @@
 package com.echcherqaoui.orderflow.payment.service;
 
-import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
-import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
+import com.echcherqaoui.orderflow.payment.dto.PrepareRefundResult;
+import com.echcherqaoui.orderflow.payment.dto.RefundCreateParams;
+import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayPermanentException;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -18,12 +22,16 @@ import org.springframework.dao.DataIntegrityViolationException;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
@@ -297,6 +305,100 @@ class PaymentServiceTest {
                   "Order timed out",
                   triggerEventId
             );
+        }
+    }
+
+    @Nested
+    @DisplayName("processRefund()")
+    class ProcessRefund {
+
+        private final String paymentIntentId = "pi_refund_123";
+        private final String reason = "Customer requested refund";
+
+        @Test
+        @DisplayName("TERMINAL prepare result aborts processing without calling PSP or database complete")
+        void prepareResultTerminal_abortsExecution() {
+            given(persistenceService.prepareRefund(orderId)).willReturn(PrepareRefundResult.TERMINAL);
+
+            paymentService.processRefund(orderId, paymentIntentId, reason, triggerEventId);
+
+            then(persistenceService).should().prepareRefund(orderId);
+            verifyNoInteractions(paymentGateway);
+            then(persistenceService).shouldHaveNoMoreInteractions();
+        }
+
+        @Test
+        @DisplayName("INITIAL_CLAIM prepare result executes PSP refund and completes local DB state")
+        void prepareResultInitialClaim_executesPspRefundAndCompletesRefund() {
+            given(persistenceService.prepareRefund(orderId)).willReturn(PrepareRefundResult.INITIAL_CLAIM);
+
+            paymentService.processRefund(orderId, paymentIntentId, reason, triggerEventId);
+
+            ArgumentCaptor<RefundCreateParams> captor = ArgumentCaptor.forClass(RefundCreateParams.class);
+            then(paymentGateway).should().refundPayment(captor.capture());
+
+            RefundCreateParams params = captor.getValue();
+            assertThat(params.paymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(params.reason()).isEqualTo(reason);
+            assertThat(params.triggerEventId()).isEqualTo(triggerEventId);
+
+            then(persistenceService).should().completeRefund(orderId, paymentIntentId, triggerEventId);
+        }
+
+        @Test
+        @DisplayName("RETRY_IN_FLIGHT prepare result proceeds with PSP refund execution and completes local DB state")
+        void prepareResultRetryInFlight_executesPspRefundAndCompletesRefund() {
+            given(persistenceService.prepareRefund(orderId)).willReturn(PrepareRefundResult.RETRY_IN_FLIGHT);
+
+            paymentService.processRefund(orderId, paymentIntentId, reason, triggerEventId);
+
+            then(paymentGateway).should().refundPayment(any(RefundCreateParams.class));
+            then(persistenceService).should().completeRefund(orderId, paymentIntentId, triggerEventId);
+        }
+
+        @Test
+        @DisplayName("PaymentGatewayTransientException propagates exception to trigger Kafka retry")
+        void pspTransientException_rethrowsException() {
+            PaymentGatewayTransientException pspEx = new PaymentGatewayTransientException("PSP timeout");
+
+            given(persistenceService.prepareRefund(orderId)).willReturn(PrepareRefundResult.INITIAL_CLAIM);
+            willThrow(pspEx).given(paymentGateway).refundPayment(any(RefundCreateParams.class));
+
+            assertThatThrownBy(() -> paymentService.processRefund(orderId, paymentIntentId, reason, triggerEventId))
+                  .isSameAs(pspEx);
+
+            then(persistenceService).should(never()).completeRefund(any(), any(), any());
+            then(persistenceService).should(never()).failRefund(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("PaymentGatewayPermanentException persists refund failure in DB and does not throw")
+        void pspPermanentException_persistsRefundFailureAndDoesNotThrow() {
+            PaymentGatewayPermanentException pspEx = new PaymentGatewayPermanentException("Invalid intent status");
+
+            given(persistenceService.prepareRefund(orderId)).willReturn(PrepareRefundResult.INITIAL_CLAIM);
+            willThrow(pspEx).given(paymentGateway).refundPayment(any(RefundCreateParams.class));
+
+            assertThatNoException().isThrownBy(() ->
+                  paymentService.processRefund(orderId, paymentIntentId, reason, triggerEventId)
+            );
+
+            then(persistenceService).should().failRefund(orderId, paymentIntentId, pspEx.getMessage(), triggerEventId);
+            then(persistenceService).should(never()).completeRefund(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Exception during local completeRefund rethrows without triggering failRefund")
+        void completeRefundDbFailure_rethrowsException() {
+            RuntimeException dbEx = new RuntimeException("Database connection lost");
+
+            given(persistenceService.prepareRefund(orderId)).willReturn(PrepareRefundResult.INITIAL_CLAIM);
+            willThrow(dbEx).given(persistenceService).completeRefund(orderId, paymentIntentId, triggerEventId);
+
+            assertThatThrownBy(() -> paymentService.processRefund(orderId, paymentIntentId, reason, triggerEventId))
+                  .isSameAs(dbEx);
+
+            then(persistenceService).should(never()).failRefund(any(), any(), any(), any());
         }
     }
 }

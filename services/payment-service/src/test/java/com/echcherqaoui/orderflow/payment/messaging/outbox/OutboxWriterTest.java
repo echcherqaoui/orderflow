@@ -7,6 +7,8 @@ import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEven
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentRefundedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.RefundFailedEvent;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.google.protobuf.Message;
@@ -400,6 +402,160 @@ class OutboxWriterTest {
                   .isInstanceOf(NullPointerException.class);
 
             assertThatThrownBy(() -> outboxWriter.writePaymentFailedEvent(orderIdStr, null, failureReason))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishPaymentRefundedEvent()")
+    class PublishPaymentRefundedEvent {
+
+        private final String paymentIntentId = "pi_refund_123";
+
+        @Test
+        @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
+        void publishPaymentRefundedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.publishPaymentRefundedEvent(orderId, paymentIntentId, causationId);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] capturedParams = signatureParamsCaptor.getValue();
+
+            assertThat(capturedParams).hasSize(4);
+            assertThat(capturedParams[0]).isNotBlank();
+            assertThat(capturedParams[1]).isEqualTo(orderId.toString());
+            assertThat(Long.parseLong(capturedParams[2])).isGreaterThan(0L);
+            assertThat(capturedParams[3]).isEqualTo(paymentIntentId);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            Message capturedMessage = messageCaptor.getValue();
+            assertThat(capturedMessage).isInstanceOf(PaymentRefundedEvent.class);
+
+            PaymentRefundedEvent event = (PaymentRefundedEvent) capturedMessage;
+            assertThat(event.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(event.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(event.getMetadata().getMessageId()).isEqualTo(capturedParams[0]);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(causationId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getId()).isNotNull();
+            assertThat(savedEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("PaymentRefundedEvent");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+            assertThat(savedEvent.getCreatedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("null causationId builds metadata without setting causationId")
+        void publishPaymentRefundedEvent_nullCausationId_buildsMetadataWithoutCausationId() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+
+            outboxWriter.publishPaymentRefundedEvent(orderId, paymentIntentId, null);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            PaymentRefundedEvent event = (PaymentRefundedEvent) messageCaptor.getValue();
+            assertThat(event.getMetadata().getCausationId()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("null mandatory arguments throw NullPointerException")
+        void publishPaymentRefundedEvent_nullMandatoryArguments_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.publishPaymentRefundedEvent(null, paymentIntentId, causationId))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThatThrownBy(() -> outboxWriter.publishPaymentRefundedEvent(orderId, null, causationId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(signatureService, serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishRefundFailedEvent()")
+    class PublishRefundFailedEvent {
+
+        private final String paymentIntentId = "pi_refund_failed_123";
+        private final String failureReason = "PSP refund declined by issuing bank";
+
+        @Test
+        @DisplayName("successful execution signs event, serializes protobuf message, and saves outbox event")
+        void publishRefundFailedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+            given(outboxEventRepository.save(any(OutboxEvent.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, failureReason, causationId);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] capturedParams = signatureParamsCaptor.getValue();
+
+            assertThat(capturedParams).hasSize(5);
+            assertThat(capturedParams[0]).isNotBlank();
+            assertThat(capturedParams[1]).isEqualTo(orderId.toString());
+            assertThat(Long.parseLong(capturedParams[2])).isGreaterThan(0L);
+            assertThat(capturedParams[3]).isEqualTo(paymentIntentId);
+            assertThat(capturedParams[4]).isEqualTo(failureReason);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            Message capturedMessage = messageCaptor.getValue();
+            assertThat(capturedMessage).isInstanceOf(RefundFailedEvent.class);
+
+            RefundFailedEvent event = (RefundFailedEvent) capturedMessage;
+            assertThat(event.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(event.getPaymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(event.getFailureReason()).isEqualTo(failureReason);
+            assertThat(event.getMetadata().getMessageId()).isEqualTo(capturedParams[0]);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(causationId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getId()).isNotNull();
+            assertThat(savedEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("RefundFailedEvent");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+            assertThat(savedEvent.getCreatedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("null causationId builds metadata without setting causationId")
+        void publishRefundFailedEvent_nullCausationId_buildsMetadataWithoutCausationId() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+
+            outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, failureReason, null);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            RefundFailedEvent event = (RefundFailedEvent) messageCaptor.getValue();
+            assertThat(event.getMetadata().getCausationId()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("null mandatory arguments throw NullPointerException")
+        void publishRefundFailedEvent_nullMandatoryArguments_throwsException() {
+            assertThatThrownBy(() -> outboxWriter.publishRefundFailedEvent(null, paymentIntentId, failureReason, causationId))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThatThrownBy(() -> outboxWriter.publishRefundFailedEvent(orderId, null, failureReason, causationId))
+                  .isInstanceOf(NullPointerException.class);
+
+            assertThatThrownBy(() -> outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, null, causationId))
                   .isInstanceOf(NullPointerException.class);
 
             verifyNoInteractions(signatureService, serializer, outboxEventRepository);

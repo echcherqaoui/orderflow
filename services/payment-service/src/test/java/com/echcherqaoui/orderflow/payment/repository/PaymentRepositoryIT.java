@@ -181,4 +181,102 @@ class PaymentRepositoryIT implements WithPostgres {
             assertThat(paymentOpt).isEmpty();
         }
     }
+
+    @Nested
+    @DisplayName("markRefundPending()")
+    class MarkRefundPending {
+
+        @Test
+        @DisplayName("updates status to REFUND_PENDING and increments version when payment status is SUCCESS")
+        void markRefundPending_updatesStatusAndIncrementsVersion_whenStatusIsSuccess() {
+            UUID orderId = UUID.randomUUID();
+
+            Payment payment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId("pi_" + UUID.randomUUID())
+                  .setUserId("user-" + UUID.randomUUID())
+                  .setTotalAmountCents(5000L)
+                  .setStatus(PaymentStatus.SUCCESS);
+
+            paymentRepository.saveAndFlush(payment);
+            Long initialVersion = payment.getVersion();
+
+            int updatedCount = paymentRepository.markRefundPending(orderId);
+
+            assertThat(updatedCount).isEqualTo(1);
+
+            Optional<Payment> updatedPaymentOpt = paymentRepository.findByOrderId(orderId, Payment.class);
+            assertThat(updatedPaymentOpt).isPresent();
+            assertThat(updatedPaymentOpt.get().getStatus()).isEqualTo(PaymentStatus.REFUND_PENDING);
+            assertThat(updatedPaymentOpt.get().getVersion()).isEqualTo(initialVersion + 1);
+        }
+
+        @Test
+        @DisplayName("returns 0 and leaves entity unchanged when payment status is not SUCCESS")
+        void markRefundPending_returnsZero_whenStatusIsNotSuccess() {
+            UUID orderId = UUID.randomUUID();
+
+            Payment payment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId("pi_" + UUID.randomUUID())
+                  .setUserId("user-" + UUID.randomUUID())
+                  .setTotalAmountCents(5000L)
+                  .setStatus(PaymentStatus.PENDING);
+
+            paymentRepository.saveAndFlush(payment);
+
+            int updatedCount = paymentRepository.markRefundPending(orderId);
+
+            assertThat(updatedCount).isZero();
+
+            Optional<Payment> unchangedPaymentOpt = paymentRepository.findByOrderId(orderId, Payment.class);
+            assertThat(unchangedPaymentOpt).isPresent();
+            assertThat(unchangedPaymentOpt.get().getStatus()).isEqualTo(PaymentStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("returns 0 when payment does not exist for given order ID")
+        void markRefundPending_returnsZero_whenPaymentDoesNotExist() {
+            UUID nonExistentOrderId = UUID.randomUUID();
+
+            int updatedCount = paymentRepository.markRefundPending(nonExistentOrderId);
+
+            assertThat(updatedCount).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("findStatusByOrderId()")
+    class FindStatusByOrderId {
+
+        @Test
+        @DisplayName("returns status when payment exists for given order ID")
+        void findStatusByOrderId_returnsStatus_whenPaymentExists() {
+            UUID orderId = UUID.randomUUID();
+
+            Payment payment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId("pi_" + UUID.randomUUID())
+                  .setUserId("user-" + UUID.randomUUID())
+                  .setTotalAmountCents(5000L)
+                  .setStatus(PaymentStatus.REFUNDED);
+
+            paymentRepository.save(payment);
+
+            Optional<PaymentStatus> statusOpt = paymentRepository.findStatusByOrderId(orderId);
+
+            assertThat(statusOpt).isPresent();
+            assertThat(statusOpt.get()).isEqualTo(PaymentStatus.REFUNDED);
+        }
+
+        @Test
+        @DisplayName("returns empty optional when payment does not exist for given order ID")
+        void findStatusByOrderId_returnsEmpty_whenPaymentDoesNotExist() {
+            UUID nonExistentOrderId = UUID.randomUUID();
+
+            Optional<PaymentStatus> statusOpt = paymentRepository.findStatusByOrderId(nonExistentOrderId);
+
+            assertThat(statusOpt).isEmpty();
+        }
+    }
 }

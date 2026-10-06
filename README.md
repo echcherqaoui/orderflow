@@ -101,9 +101,11 @@ Acts as the distributed Saga Orchestrator:
 ### Payment Service
 Acts as the single source of truth for payment lifecycle processing:
 * **Intent Execution & Gateway Abstraction:** Processes payment intent creation (`paymentIntentId`), confirmation, and async charge commands (`ChargePaymentCommandHandler`) via provider interfaces (`PaymentGateway`, `MockPaymentGateway`).
-* **Embedded PSP Simulator (MockStripe):** Exposes `/mock-stripe/payment_intents/{id}/confirm` to simulate card outcomes (`succeeded`, `card_declined`, `insufficient_funds`) and trigger async webhook dispatches with retries.
-* **Payload Integrity & Verification:** Validates webhook signatures using HMAC verification (`HmacSignatureService`).
-* **Outbox & Resilient Messaging:** Emits `PaymentInitiatedEvent` and payment outcome events atomically using the Transactional Outbox pattern, supported by dedicated Kafka retry topics and dead-letter queues (`KafkaRetryConfig`).
+* **Auto Refund & Compensation Handling:** Consumes `RefundPaymentCommand` to compensate failed order flows. Executes atomic status transitions (`SUCCESS` -> `REFUND_PENDING`) via non-blocking database queries to prevent race conditions during saga compensation.
+* **Two-Transaction Saga Pattern:** Decouples external PSP network calls from database transactions to prevent connection pool exhaustion, issuing outbox events (`PaymentRefundedEvent`, `RefundFailedEvent`) in a secondary transaction.
+* **Embedded PSP Simulator (`mockstripe`):** Modularized across `config`, `controller`, `dto`, `model`, `store`, and `service` sub-packages. Exposes payment intent and refund endpoints to simulate PSP outcomes (`succeeded`, `card_declined`, `insufficient_funds`) and trigger async webhook dispatches with retries.
+* **Payload Integrity & Verification:** Validates command signatures and webhook payloads using HMAC verification (`SignatureService`).
+* **Outbox & Resilient Messaging:** Emits `PaymentInitiatedEvent`, payment outcomes, and refund events atomically using the Transactional Outbox pattern, supported by dedicated Kafka retry topics and dead-letter queues (`KafkaRetryConfig`).
 
 ---
 

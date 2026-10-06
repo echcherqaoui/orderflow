@@ -8,6 +8,8 @@ import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEven
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentRefundedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.RefundFailedEvent;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.echcherqaoui.orderflow.util.InstantConverter;
@@ -182,5 +184,50 @@ public class OutboxWriter {
               .build();
 
         persist(paymentFailedEvent, orderId);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishPaymentRefundedEvent(@lombok.NonNull UUID orderId,
+                                            @lombok.NonNull String paymentIntentId,
+                                            String causationId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              causationId,
+              paymentIntentId
+        );
+
+        PaymentRefundedEvent event = PaymentRefundedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setPaymentIntentId(paymentIntentId)
+              .build();
+
+        persist(event, orderIdStr);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishRefundFailedEvent(@lombok.NonNull UUID orderId,
+                                         @lombok.NonNull String paymentIntentId,
+                                         @lombok.NonNull String failureReason,
+                                         String causationId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              causationId,
+              paymentIntentId,
+              failureReason
+        );
+
+        RefundFailedEvent event = RefundFailedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setPaymentIntentId(paymentIntentId)
+              .setFailureReason(failureReason)
+              .build();
+
+        persist(event, orderIdStr);
     }
 }

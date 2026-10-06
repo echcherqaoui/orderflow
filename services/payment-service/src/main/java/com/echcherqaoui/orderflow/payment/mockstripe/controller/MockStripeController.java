@@ -1,5 +1,6 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.controller;
 
+import com.echcherqaoui.orderflow.payment.mockstripe.service.MockStripeService;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentRequest;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentResponse;
 import jakarta.validation.Valid;

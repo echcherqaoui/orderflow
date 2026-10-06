@@ -1,4 +1,4 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.service;
 
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload.PaymentError;

@@ -6,6 +6,8 @@ import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEven
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentRefundedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.RefundFailedEvent;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.support.WithKafka;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
@@ -483,6 +485,191 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
             String orderIdStr = orderId.toString();
             assertThatThrownBy(() ->
                   outboxWriter.writePaymentFailedEvent(orderIdStr, null, failureReason)
+            ).isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishPaymentRefundedEvent()")
+    class PublishPaymentRefundedEvent {
+
+        private final String paymentIntentId = "pi_stripe_refund_123";
+
+        @Test
+        @Transactional
+        @DisplayName("successfully serializes payload using Schema Registry wire format and persists complete outbox entity")
+        void publishPaymentRefundedEvent_success_persistsAndSerializesPayload() {
+            outboxWriter.publishPaymentRefundedEvent(orderId, paymentIntentId, triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            List<OutboxEvent> rows = entityManager
+                  .createQuery(
+                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
+                        OutboxEvent.class
+                  ).setParameter("orderId", orderId.toString())
+                  .setParameter("aggregateType", "payment.events")
+                  .getResultList();
+
+            assertThat(rows).hasSize(1);
+            OutboxEvent event = rows.getFirst();
+
+            // Verify Outbox Metadata
+            assertThat(event.getId()).isNotNull();
+            assertThat(event.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(event.getAggregateType()).isEqualTo("payment.events");
+            assertThat(event.getEventType()).isEqualTo("PaymentRefundedEvent");
+            assertThat(event.getCreatedAt()).isNotNull();
+            assertThat(event.getPayload()).isNotEmpty();
+
+            // Verify Protobuf Wire Format & Schema Registry Decoding
+            Map<String, Object> deserializerConfig = new HashMap<>();
+            deserializerConfig.put(
+                  "schema.registry.url",
+                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081)
+            );
+            deserializerConfig.put("specific.protobuf.value.type", PaymentRefundedEvent.class);
+
+            try (KafkaProtobufDeserializer<PaymentRefundedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+                deserializer.configure(deserializerConfig, false);
+
+                PaymentRefundedEvent decoded = deserializer.deserialize("orderflow.payment.events", event.getPayload());
+
+                // Payload assertions
+                assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getPaymentIntentId()).isEqualTo(paymentIntentId);
+
+                // Metadata assertions
+                assertThat(decoded.getMetadata().getMessageId()).isNotBlank();
+                assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+                assertThat(decoded.getMetadata().hasOccurredAt()).isTrue();
+                assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+            }
+        }
+
+        @Test
+        @DisplayName("throws IllegalTransactionStateException when called without an active transaction")
+        void publishPaymentRefundedEvent_noActiveTransaction_throwsIllegalTransactionStateException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishPaymentRefundedEvent(orderId, paymentIntentId, triggerEventId)
+            ).isInstanceOf(IllegalTransactionStateException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when orderId is null")
+        void publishPaymentRefundedEvent_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishPaymentRefundedEvent(null, paymentIntentId, triggerEventId)
+            ).isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when paymentIntentId is null")
+        void publishPaymentRefundedEvent_nullPaymentIntentId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishPaymentRefundedEvent(orderId, null, triggerEventId)
+            ).isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishRefundFailedEvent()")
+    class PublishRefundFailedEvent {
+
+        private final String paymentIntentId = "pi_stripe_refund_fail_123";
+        private final String reason = "Charge has already been refunded";
+
+        @Test
+        @Transactional
+        @DisplayName("successfully serializes payload using Schema Registry wire format and persists complete outbox entity")
+        void publishRefundFailedEvent_success_persistsAndSerializesPayload() {
+            outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, reason, triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            List<OutboxEvent> rows = entityManager
+                  .createQuery(
+                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId AND e.aggregateType = :aggregateType",
+                        OutboxEvent.class
+                  ).setParameter("orderId", orderId.toString())
+                  .setParameter("aggregateType", "payment.events")
+                  .getResultList();
+
+            assertThat(rows).hasSize(1);
+            OutboxEvent event = rows.getFirst();
+
+            // Verify Outbox Metadata
+            assertThat(event.getId()).isNotNull();
+            assertThat(event.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(event.getAggregateType()).isEqualTo("payment.events");
+            assertThat(event.getEventType()).isEqualTo("RefundFailedEvent");
+            assertThat(event.getCreatedAt()).isNotNull();
+            assertThat(event.getPayload()).isNotEmpty();
+
+            // Verify Protobuf Wire Format & Schema Registry Decoding
+            Map<String, Object> deserializerConfig = new HashMap<>();
+            deserializerConfig.put(
+                  "schema.registry.url",
+                  "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081)
+            );
+            deserializerConfig.put("specific.protobuf.value.type", RefundFailedEvent.class);
+
+            try (KafkaProtobufDeserializer<RefundFailedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+                deserializer.configure(deserializerConfig, false);
+
+                RefundFailedEvent decoded = deserializer.deserialize("orderflow.payment.events", event.getPayload());
+
+                // Payload assertions
+                assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getPaymentIntentId()).isEqualTo(paymentIntentId);
+                assertThat(decoded.getFailureReason()).isEqualTo(reason);
+
+                // Metadata assertions
+                assertThat(decoded.getMetadata().getMessageId()).isNotBlank();
+                assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+                assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+                assertThat(decoded.getMetadata().hasOccurredAt()).isTrue();
+                assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+            }
+        }
+
+        @Test
+        @DisplayName("throws IllegalTransactionStateException when called without an active transaction")
+        void publishRefundFailedEvent_noActiveTransaction_throwsIllegalTransactionStateException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, reason, triggerEventId)
+            ).isInstanceOf(IllegalTransactionStateException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when orderId is null")
+        void publishRefundFailedEvent_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishRefundFailedEvent(null, paymentIntentId, reason, triggerEventId)
+            ).isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when paymentIntentId is null")
+        void publishRefundFailedEvent_nullPaymentIntentId_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishRefundFailedEvent(orderId, null, reason, triggerEventId)
+            ).isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("throws NullPointerException when failureReason is null")
+        void publishRefundFailedEvent_nullFailureReason_throwsNullPointerException() {
+            assertThatThrownBy(() ->
+                  outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, null, triggerEventId)
             ).isInstanceOf(NullPointerException.class);
         }
     }

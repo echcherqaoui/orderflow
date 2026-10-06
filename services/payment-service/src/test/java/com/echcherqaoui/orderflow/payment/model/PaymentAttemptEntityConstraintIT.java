@@ -1,6 +1,5 @@
 package com.echcherqaoui.orderflow.payment.model;
 
-import com.echcherqaoui.orderflow.payment.domain.PaymentAttempt;
 import com.echcherqaoui.orderflow.payment.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;

@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.payment.service;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
+import com.echcherqaoui.orderflow.payment.dto.PrepareRefundResult;
 import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.model.Payment;
@@ -453,6 +454,181 @@ class PaymentPersistenceServiceIT implements WithPostgres {
             Payment payment = paymentWithAttempts();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
             assertThat(payment.getAttempts()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("prepareRefund()")
+    class PrepareRefund {
+
+        @Test
+        @DisplayName("returns INITIAL_CLAIM and transitions status to REFUND_PENDING when payment status is SUCCESS")
+        void prepareRefund_whenStatusIsSuccess_claimsAndReturnsInitialClaim() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
+
+            PrepareRefundResult result = transactionalWriter.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.INITIAL_CLAIM);
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUND_PENDING);
+        }
+
+        @Test
+        @DisplayName("returns RETRY_IN_FLIGHT when payment status is already REFUND_PENDING")
+        void prepareRefund_whenStatusIsRefundPending_returnsRetryInFlight() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
+            transactionalWriter.prepareRefund(orderId);
+
+            PrepareRefundResult result = transactionalWriter.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.RETRY_IN_FLIGHT);
+        }
+
+        @Test
+        @DisplayName("returns TERMINAL when payment status is not eligible for refund")
+        void prepareRefund_whenStatusIsNotSuccessOrPending_returnsTerminal() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+
+            PrepareRefundResult result = transactionalWriter.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.TERMINAL);
+        }
+
+        @Test
+        @DisplayName("returns TERMINAL when payment entity does not exist")
+        void prepareRefund_whenPaymentDoesNotExist_returnsTerminal() {
+            PrepareRefundResult result = transactionalWriter.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.TERMINAL);
+        }
+    }
+
+    @Nested
+    @DisplayName("completeRefund()")
+    class CompleteRefund {
+
+        @Test
+        @DisplayName("atomic commit updates payment status to REFUNDED and persists outbox event")
+        void completeRefund_success_persistsRefundedStatusAndOutboxAtomically() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
+            transactionalWriter.prepareRefund(orderId);
+            outboxEventRepository.deleteAll();
+
+            transactionalWriter.completeRefund(orderId, pspResponse.paymentIntentId(), triggerEventId);
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+
+            OutboxEvent outboxEvent = outboxEvents.getFirst();
+            assertThat(outboxEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(outboxEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(outboxEvent.getEventType()).isEqualTo("PaymentRefundedEvent");
+            assertThat(outboxEvent.getPayload()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("completing refund for non-existent payment throws PaymentNotFoundException")
+        void completeRefund_nonExistentPayment_throwsPaymentNotFoundException() {
+            String paymentIntentId = pspResponse.paymentIntentId();
+
+            assertThatThrownBy(() ->
+                  transactionalWriter.completeRefund(orderId, paymentIntentId, triggerEventId)
+            ).isInstanceOf(PaymentNotFoundException.class);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("outbox persistence failure rolls back payment status update to REFUND_PENDING")
+        void completeRefund_outboxFailure_rollsBackEntireTransaction() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
+            transactionalWriter.prepareRefund(orderId);
+
+            willThrow(new RuntimeException("Outbox database persistence failure"))
+                  .given(outboxEventRepository)
+                  .save(any(OutboxEvent.class));
+
+            String paymentIntentId = pspResponse.paymentIntentId();
+
+            assertThatThrownBy(() ->
+                  transactionalWriter.completeRefund(orderId, paymentIntentId, triggerEventId)
+            ).isInstanceOf(RuntimeException.class)
+                  .hasMessage("Outbox database persistence failure");
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUND_PENDING);
+        }
+    }
+
+    @Nested
+    @DisplayName("failRefund()")
+    class FailRefund {
+
+        private final String failureReason = "PSP refund declined by issuing bank";
+
+        @Test
+        @DisplayName("atomic commit updates payment status to REFUND_FAILED and persists refund failure outbox event")
+        void failRefund_success_persistsFailedRefundStatusAndOutboxAtomically() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
+            transactionalWriter.prepareRefund(orderId);
+            outboxEventRepository.deleteAll();
+
+            transactionalWriter.failRefund(orderId, pspResponse.paymentIntentId(), failureReason, triggerEventId);
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+
+            OutboxEvent outboxEvent = outboxEvents.getFirst();
+            assertThat(outboxEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(outboxEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(outboxEvent.getEventType()).isEqualTo("RefundFailedEvent");
+            assertThat(outboxEvent.getPayload()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("failing refund for non-existent payment throws PaymentNotFoundException")
+        void failRefund_nonExistentPayment_throwsPaymentNotFoundException() {
+            String paymentIntentId = pspResponse.paymentIntentId();
+
+            assertThatThrownBy(() ->
+                  transactionalWriter.failRefund(orderId, paymentIntentId, failureReason, triggerEventId)
+            ).isInstanceOf(PaymentNotFoundException.class);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("outbox persistence failure rolls back payment status update to REFUND_PENDING")
+        void failRefund_outboxFailure_rollsBackEntireTransaction() {
+            transactionalWriter.savePaymentAndOutbox(orderId, userId, totalAmountCents, pspResponse, triggerEventId);
+            transactionalWriter.recordSuccessAndOutbox(pspResponse.paymentIntentId());
+            transactionalWriter.prepareRefund(orderId);
+
+            willThrow(new RuntimeException("Outbox database persistence failure"))
+                  .given(outboxEventRepository)
+                  .save(any(OutboxEvent.class));
+
+            String paymentIntentId = pspResponse.paymentIntentId();
+
+            assertThatThrownBy(() ->
+                  transactionalWriter.failRefund(orderId, paymentIntentId, failureReason, triggerEventId)
+            ).isInstanceOf(RuntimeException.class)
+                  .hasMessage("Outbox database persistence failure");
+
+            Payment payment = paymentRepository.findAll().getFirst();
+            assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUND_PENDING);
         }
     }
 }

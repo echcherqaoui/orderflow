@@ -1,5 +1,7 @@
 package com.echcherqaoui.orderflow.payment.gateway;
 
+import com.echcherqaoui.orderflow.payment.dto.RefundCreateParams;
+import org.jspecify.annotations.NonNull;
 import org.springframework.resilience.annotation.Retryable;
 
 public interface PaymentGateway {
@@ -18,4 +20,7 @@ public interface PaymentGateway {
           multiplier = 2.0
     )
     void cancelIntent(String paymentIntentId);
+
+
+    void refundPayment(@NonNull RefundCreateParams params);
 }

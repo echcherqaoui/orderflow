@@ -1,6 +1,8 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.store;
 
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.TransitionResult;
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntent;
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -9,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
 
 @Component
 public class MockPaymentIntentStore {
@@ -74,5 +76,20 @@ public class MockPaymentIntentStore {
 
         if (removed != null && removed.idempotencyKey() != null)
             intentsByIdempotencyKey.remove(removed.idempotencyKey());
+    }
+
+    public MockPaymentIntent refund(@lombok.NonNull String paymentIntentId) {
+
+        BiFunction<String, MockPaymentIntent, MockPaymentIntent> applyRefund = (id, current) -> {
+            if (current.status() == MockPaymentIntentStatus.REFUNDED)
+                return current; // replay: no-op
+
+            if (current.status() != MockPaymentIntentStatus.SUCCEEDED)
+                throw new IllegalStateException("Cannot refund intent in status " + current.status());
+
+            return current.withRefund();
+        };
+
+        return intentsByPaymentIntentId.computeIfPresent(paymentIntentId, applyRefund);
     }
 }
