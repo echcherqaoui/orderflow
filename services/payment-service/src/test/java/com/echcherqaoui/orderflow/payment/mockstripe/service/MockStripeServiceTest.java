@@ -1,10 +1,12 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.service;
 
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentRequest;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.ConfirmPaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload.PaymentError;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.TransitionResult;
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntent;
+import com.echcherqaoui.orderflow.payment.mockstripe.store.MockPaymentIntentStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -13,9 +15,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.CANCELED;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.SUCCEEDED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.CANCELED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;

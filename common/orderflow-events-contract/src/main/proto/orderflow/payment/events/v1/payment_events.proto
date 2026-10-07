@@ -36,3 +36,16 @@ message PaymentFailedEvent {
   string payment_intent_id = 2;
   string failure_reason = 3;
 }
+
+message PaymentRefundedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string payment_intent_id = 3;
+}
+
+message RefundFailedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string payment_intent_id = 3;
+  string failure_reason = 4;
+}

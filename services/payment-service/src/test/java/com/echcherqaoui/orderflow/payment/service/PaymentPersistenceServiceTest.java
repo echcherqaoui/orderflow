@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
+import com.echcherqaoui.orderflow.payment.dto.PrepareRefundResult;
 import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.messaging.outbox.OutboxWriter;
@@ -594,6 +595,180 @@ class PaymentPersistenceServiceTest {
 
             then(paymentRepository).should().saveAndFlush(any(Payment.class));
             then(outboxWriter).should().writePaymentFailedEvent(orderId.toString(), paymentIntentId, errorMessage);
+        }
+    }
+
+    @Nested
+    @DisplayName("prepareRefund()")
+    class PrepareRefund {
+
+        @Test
+        @DisplayName("returns INITIAL_CLAIM when repository claim succeeds")
+        void prepareRefund_claimSucceeds_returnsInitialClaim() {
+            given(paymentRepository.markRefundPending(orderId)).willReturn(1);
+
+            PrepareRefundResult result = paymentPersistenceService.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.INITIAL_CLAIM);
+            then(paymentRepository).should().markRefundPending(orderId);
+            then(paymentRepository).shouldHaveNoMoreInteractions();
+        }
+
+        @Test
+        @DisplayName("returns RETRY_IN_FLIGHT when claim fails but existing status is REFUND_PENDING")
+        void prepareRefund_claimFailsAndStatusIsRefundPending_returnsRetryInFlight() {
+            given(paymentRepository.markRefundPending(orderId)).willReturn(0);
+            given(paymentRepository.findStatusByOrderId(orderId))
+                  .willReturn(Optional.of(PaymentStatus.REFUND_PENDING));
+
+            PrepareRefundResult result = paymentPersistenceService.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.RETRY_IN_FLIGHT);
+            then(paymentRepository).should().markRefundPending(orderId);
+            then(paymentRepository).should().findStatusByOrderId(orderId);
+        }
+
+        @Test
+        @DisplayName("returns TERMINAL when claim fails and existing status is not REFUND_PENDING")
+        void prepareRefund_claimFailsAndStatusIsNotRefundPending_returnsTerminal() {
+            given(paymentRepository.markRefundPending(orderId)).willReturn(0);
+            given(paymentRepository.findStatusByOrderId(orderId))
+                  .willReturn(Optional.of(PaymentStatus.REFUNDED));
+
+            PrepareRefundResult result = paymentPersistenceService.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.TERMINAL);
+            then(paymentRepository).should().markRefundPending(orderId);
+            then(paymentRepository).should().findStatusByOrderId(orderId);
+        }
+
+        @Test
+        @DisplayName("returns TERMINAL when claim fails and payment does not exist")
+        void prepareRefund_claimFailsAndPaymentNotFound_returnsTerminal() {
+            given(paymentRepository.markRefundPending(orderId)).willReturn(0);
+            given(paymentRepository.findStatusByOrderId(orderId))
+                  .willReturn(Optional.empty());
+
+            PrepareRefundResult result = paymentPersistenceService.prepareRefund(orderId);
+
+            assertThat(result).isEqualTo(PrepareRefundResult.TERMINAL);
+            then(paymentRepository).should().markRefundPending(orderId);
+            then(paymentRepository).should().findStatusByOrderId(orderId);
+        }
+    }
+
+    @Nested
+    @DisplayName("completeRefund()")
+    class CompleteRefund {
+
+        private final String paymentIntentId = "pi_refund_123";
+
+        @Test
+        @DisplayName("updates status to REFUNDED, saves payment, and publishes refunded outbox event")
+        void completeRefund_success_updatesStatusAndPublishesOutbox() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setStatus(PaymentStatus.REFUND_PENDING);
+
+            given(paymentRepository.findByOrderId(orderId, Payment.class))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            paymentPersistenceService.completeRefund(orderId, paymentIntentId, triggerEventId);
+
+            then(paymentRepository).should().saveAndFlush(paymentCaptor.capture());
+            Payment savedPayment = paymentCaptor.getValue();
+
+            assertThat(savedPayment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+
+            then(outboxWriter).should().publishPaymentRefundedEvent(orderId, paymentIntentId, triggerEventId);
+        }
+
+        @Test
+        @DisplayName("throws PaymentNotFoundException when payment is not found for orderId")
+        void completeRefund_paymentNotFound_throwsException() {
+            given(paymentRepository.findByOrderId(orderId, Payment.class))
+                  .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> paymentPersistenceService.completeRefund(orderId, paymentIntentId, triggerEventId))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("repository failure propagates exception and skips outbox publication")
+        void completeRefund_repositoryFails_propagatesException() {
+            Payment existingPayment = new Payment().setOrderId(orderId).setStatus(PaymentStatus.REFUND_PENDING);
+            RuntimeException dbException = new RuntimeException("Database failure");
+
+            given(paymentRepository.findByOrderId(orderId, Payment.class))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.saveAndFlush(any(Payment.class))).willThrow(dbException);
+
+            assertThatThrownBy(() -> paymentPersistenceService.completeRefund(orderId, paymentIntentId, triggerEventId))
+                  .isSameAs(dbException);
+
+            verifyNoInteractions(outboxWriter);
+        }
+    }
+
+    @Nested
+    @DisplayName("failRefund()")
+    class FailRefund {
+
+        private final String paymentIntentId = "pi_refund_123";
+        private final String failureReason = "Chargeback already active";
+
+        @Test
+        @DisplayName("updates status to REFUND_FAILED, saves payment, and publishes refund failed outbox event")
+        void failRefund_success_updatesStatusAndPublishesOutbox() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setStatus(PaymentStatus.REFUND_PENDING);
+
+            given(paymentRepository.findByOrderId(orderId, Payment.class))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.save(any(Payment.class)))
+                  .willAnswer(invocation -> invocation.getArgument(0));
+
+            paymentPersistenceService.failRefund(orderId, paymentIntentId, failureReason, triggerEventId);
+
+            then(paymentRepository).should().save(paymentCaptor.capture());
+            Payment savedPayment = paymentCaptor.getValue();
+
+            assertThat(savedPayment.getStatus()).isEqualTo(PaymentStatus.REFUND_FAILED);
+
+            then(outboxWriter).should().publishRefundFailedEvent(orderId, paymentIntentId, failureReason, triggerEventId);
+        }
+
+        @Test
+        @DisplayName("throws PaymentNotFoundException when payment is not found for orderId")
+        void failRefund_paymentNotFound_throwsException() {
+            given(paymentRepository.findByOrderId(orderId, Payment.class))
+                  .willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> paymentPersistenceService.failRefund(orderId, paymentIntentId, failureReason, triggerEventId))
+                  .isInstanceOf(PaymentNotFoundException.class);
+
+            verifyNoInteractions(outboxWriter);
+        }
+
+        @Test
+        @DisplayName("repository failure propagates exception and skips outbox publication")
+        void failRefund_repositoryFails_propagatesException() {
+            Payment existingPayment = new Payment().setOrderId(orderId).setStatus(PaymentStatus.REFUND_PENDING);
+            RuntimeException dbException = new RuntimeException("Database failure");
+
+            given(paymentRepository.findByOrderId(orderId, Payment.class))
+                  .willReturn(Optional.of(existingPayment));
+            given(paymentRepository.save(any(Payment.class))).willThrow(dbException);
+
+            assertThatThrownBy(() -> paymentPersistenceService.failRefund(orderId, paymentIntentId, failureReason, triggerEventId))
+                  .isSameAs(dbException);
+
+            verifyNoInteractions(outboxWriter);
         }
     }
 }

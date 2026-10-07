@@ -2,9 +2,10 @@ package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
+import com.echcherqaoui.orderflow.payment.dto.RefundCreateParams;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
-import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
 import com.echcherqaoui.orderflow.payment.gateway.PaymentGateway;
+import com.echcherqaoui.orderflow.payment.gateway.PaymentGatewayTransientException;
 import com.echcherqaoui.orderflow.payment.model.Payment;
 import com.echcherqaoui.orderflow.payment.model.PaymentStatus;
 import com.echcherqaoui.orderflow.payment.repository.PaymentRepository;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -29,6 +31,7 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -190,7 +193,7 @@ class PaymentServiceIT implements WithPostgres {
         @DisplayName("psp gateway transient failure persists PSP_PAYMENT_DECLINED reason code")
         void initializePayment_transientGatewayFailure_persistsPaymentDeclined() {
             given(paymentGateway.createIntent(anyString(), anyLong()))
-                  .willThrow(new PaymentGatewayTransientException(new RuntimeException("Card declined")));
+                  .willThrow(new PaymentGatewayTransientException("Card declined"));
 
             paymentService.initializePayment(orderId, userId, totalAmountCents, triggerEventId);
 
@@ -340,6 +343,119 @@ class PaymentServiceIT implements WithPostgres {
             ).isInstanceOf(NullPointerException.class);
 
             verifyNoInteractions(paymentGateway);
+        }
+    }
+
+    @Nested
+    @DisplayName("processRefund()")
+    class ProcessRefund {
+
+        private final String paymentIntentId = "pi_stripe_refund_123";
+        private final String refundReason = "Order cancelled by customer";
+
+        @Test
+        @DisplayName("skips processing when payment record does not exist in DB")
+        void processRefund_paymentNotFound_skipsProcessing() {
+            paymentService.processRefund(orderId, paymentIntentId, refundReason, triggerEventId);
+
+            verifyNoInteractions(paymentGateway);
+            assertThat(paymentRepository.findAll()).isEmpty();
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("skips processing when payment status is terminal non-refundable (e.g. REFUND_FAILED)")
+        void processRefund_terminalStatus_skipsProcessing() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setUserId(userId)
+                  .setTotalAmountCents(totalAmountCents)
+                  .setStatus(PaymentStatus.REFUND_FAILED)
+                  .setFailureReason("Charge already refunded");
+            paymentRepository.saveAndFlush(existingPayment);
+
+            paymentService.processRefund(orderId, paymentIntentId, refundReason, triggerEventId);
+
+            verifyNoInteractions(paymentGateway);
+            assertThat(paymentRepository.findAll()).hasSize(1);
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("successfully executes PSP refund and transitions state from SUCCESS to REFUNDED with outbox event")
+        void processRefund_success_executesPspRefundAndPersistsState() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setUserId(userId)
+                  .setTotalAmountCents(totalAmountCents)
+                  .setStatus(PaymentStatus.SUCCESS);
+            paymentRepository.saveAndFlush(existingPayment);
+
+            paymentService.processRefund(orderId, paymentIntentId, refundReason, triggerEventId);
+
+            ArgumentCaptor<RefundCreateParams> captor = ArgumentCaptor.forClass(RefundCreateParams.class);
+            verify(paymentGateway).refundPayment(captor.capture());
+
+            RefundCreateParams params = captor.getValue();
+            assertThat(params.paymentIntentId()).isEqualTo(paymentIntentId);
+            assertThat(params.reason()).isEqualTo(refundReason);
+            assertThat(params.triggerEventId()).isEqualTo(triggerEventId);
+
+            Payment updatedPayment = paymentRepository.findAll().getFirst();
+            assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+
+            List<OutboxEvent> outboxEvents = outboxEventRepository.findAll();
+            assertThat(outboxEvents).hasSize(1);
+
+            OutboxEvent outboxEvent = outboxEvents.getFirst();
+            assertThat(outboxEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(outboxEvent.getAggregateType()).isEqualTo("payment.events");
+            assertThat(outboxEvent.getEventType()).isEqualTo("PaymentRefundedEvent");
+            assertThat(outboxEvent.getPayload()).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("idempotent replay when already REFUNDED terminates cleanly without duplicate gateway calls or outbox events")
+        void processRefund_alreadyRefunded_skipsGatewayCallAndOutbox() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setUserId(userId)
+                  .setTotalAmountCents(totalAmountCents)
+                  .setStatus(PaymentStatus.REFUNDED);
+            paymentRepository.saveAndFlush(existingPayment);
+
+            paymentService.processRefund(orderId, paymentIntentId, refundReason, triggerEventId);
+
+            verifyNoInteractions(paymentGateway);
+            assertThat(outboxEventRepository.findAll()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("transient gateway exception rethrows to trigger retry mechanism without mutating status to failed or persisting failure outbox")
+        void processRefund_transientGatewayException_rethrowsException() {
+            Payment existingPayment = new Payment()
+                  .setOrderId(orderId)
+                  .setPaymentIntentId(paymentIntentId)
+                  .setUserId(userId)
+                  .setTotalAmountCents(totalAmountCents)
+                  .setStatus(PaymentStatus.SUCCESS);
+            paymentRepository.saveAndFlush(existingPayment);
+
+            PaymentGatewayTransientException transientEx =
+                  new PaymentGatewayTransientException("PSP gateway timeout during refund");
+            willThrow(transientEx).given(paymentGateway).refundPayment(any(RefundCreateParams.class));
+
+            assertThatThrownBy(() ->
+                  paymentService.processRefund(orderId, paymentIntentId, refundReason, triggerEventId)
+            ).isSameAs(transientEx);
+
+            Payment updatedPayment = paymentRepository.findAll().getFirst();
+            assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.REFUND_PENDING);
+
+            assertThat(outboxEventRepository.findAll()).isEmpty();
         }
     }
 }

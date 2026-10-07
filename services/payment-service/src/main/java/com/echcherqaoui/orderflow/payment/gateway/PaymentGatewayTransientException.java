@@ -1,17 +1,18 @@
 package com.echcherqaoui.orderflow.payment.gateway;
 
-import com.echcherqaoui.orderflow.exception.core.BaseCustomException;
+public class PaymentGatewayTransientException extends PaymentGatewayException {
 
-import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.PSP_CONNECTION_FAILED;
-
-
-public class PaymentGatewayTransientException extends BaseCustomException {
-
-    public PaymentGatewayTransientException(Throwable cause) {
-        super(PSP_CONNECTION_FAILED, cause);
-    }
+    private static final String DEFAULT_MESSAGE = "Payment gateway temporarily unavailable";
 
     public PaymentGatewayTransientException() {
-        super(PSP_CONNECTION_FAILED);
+        super(DEFAULT_MESSAGE);
+    }
+
+    public PaymentGatewayTransientException(String message) {
+        super(message);
+    }
+
+    public PaymentGatewayTransientException(String message, Throwable cause) {
+        super(message, cause);
     }
 }

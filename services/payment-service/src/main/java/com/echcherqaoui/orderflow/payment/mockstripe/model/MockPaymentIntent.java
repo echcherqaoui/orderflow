@@ -1,10 +1,11 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.model;
 
 import java.util.UUID;
 
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.CANCELED;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.SUCCEEDED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.CANCELED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REFUNDED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.SUCCEEDED;
 
 public record MockPaymentIntent(String paymentIntentId,
                                 String idempotencyKey,
@@ -61,6 +62,19 @@ public record MockPaymentIntent(String paymentIntentId,
               clientSecret,
               totalAmountCents,
               SUCCEEDED,
+              attemptCount + 1,
+              null
+        );
+    }
+
+    @lombok.NonNull
+    public MockPaymentIntent withRefund() {
+        return new MockPaymentIntent(
+              paymentIntentId,
+              idempotencyKey,
+              clientSecret,
+              totalAmountCents,
+              REFUNDED,
               attemptCount + 1,
               null
         );

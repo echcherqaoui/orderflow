@@ -80,6 +80,8 @@
                                 <orderflow.payment.events.v1.PaymentCancelledEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentCancelledEvent>
                                 <orderflow.payment.events.v1.PaymentChargedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentChargedEvent>
                                 <orderflow.payment.events.v1.PaymentFailedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentFailedEvent>
+                                <orderflow.payment.events.v1.PaymentRefundedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentRefundedEvent>
+                                <orderflow.payment.events.v1.RefundFailedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.RefundFailedEvent>
 
                                 <!-- Inventory Event Schemas (RecordNameStrategy) -->
                                 <orderflow.inventory.events.v1.ReservationExtendedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.ReservationExtendedEvent>
@@ -109,6 +111,8 @@
                                 <orderflow.payment.events.v1.PaymentCancelledEvent>PROTOBUF</orderflow.payment.events.v1.PaymentCancelledEvent>
                                 <orderflow.payment.events.v1.PaymentChargedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentChargedEvent>
                                 <orderflow.payment.events.v1.PaymentFailedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentFailedEvent>
+                                <orderflow.payment.events.v1.PaymentRefundedEvent>PROTOBUF</orderflow.payment.events.v1.PaymentRefundedEvent>
+                                <orderflow.payment.events.v1.RefundFailedEvent>PROTOBUF</orderflow.payment.events.v1.RefundFailedEvent>
 
                                 <!-- Inventory Events -->
                                 <orderflow.inventory.events.v1.ReservationExtendedEvent>PROTOBUF</orderflow.inventory.events.v1.ReservationExtendedEvent>
@@ -198,6 +202,20 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.payment.events.v1.PaymentFailedEvent>
+
+                                <orderflow.payment.events.v1.PaymentRefundedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.events.v1.PaymentRefundedEvent>
+
+                                <orderflow.payment.events.v1.RefundFailedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.payment.events.v1.RefundFailedEvent>
 
                                 <orderflow.inventory.events.v1.ReservationExtendedEvent>
                                     <reference>

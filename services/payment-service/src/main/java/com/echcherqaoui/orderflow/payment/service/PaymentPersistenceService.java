@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.payment.service;
 
 import com.echcherqaoui.orderflow.payment.dto.PaymentCancelProjection;
+import com.echcherqaoui.orderflow.payment.dto.PrepareRefundResult;
 import com.echcherqaoui.orderflow.payment.exception.domain.PaymentNotFoundException;
 import com.echcherqaoui.orderflow.payment.gateway.CreatePaymentIntentResponse;
 import com.echcherqaoui.orderflow.payment.messaging.outbox.OutboxWriter;
@@ -17,8 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.PAYMENT_INTENT_NOT_FOUND;
-import static com.echcherqaoui.orderflow.payment.exception.code.OrderErrorCode.PAYMENT_NOT_FOUND_FOR_ORDER;
+import static com.echcherqaoui.orderflow.payment.exception.code.PaymentErrorCode.PAYMENT_INTENT_NOT_FOUND;
+import static com.echcherqaoui.orderflow.payment.exception.code.PaymentErrorCode.PAYMENT_NOT_FOUND_FOR_ORDER;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.CANCELLED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.FAILED;
 import static com.echcherqaoui.orderflow.payment.model.PaymentStatus.PENDING;
@@ -172,5 +173,50 @@ public class PaymentPersistenceService {
               paymentIntentId,
               errorMessage
         );
+    }
+
+    @Transactional
+    public PrepareRefundResult prepareRefund(UUID orderId) {
+        // 1. Atomic state transition SUCCESS -> REFUND_PENDING
+        int claimed = paymentRepository.markRefundPending(orderId);
+        if (claimed > 0)
+            return PrepareRefundResult.INITIAL_CLAIM;
+
+        return paymentRepository.findStatusByOrderId(orderId)
+              .filter(status -> status == PaymentStatus.REFUND_PENDING)
+              .map(status -> PrepareRefundResult.RETRY_IN_FLIGHT)
+              .orElse(PrepareRefundResult.TERMINAL);
+    }
+
+    @Transactional
+    public void completeRefund(UUID orderId,
+                               String paymentIntentId,
+                               String triggerEventId) {
+
+        Payment payment = paymentRepository.findByOrderId(orderId, Payment.class)
+              .orElseThrow(() -> new PaymentNotFoundException(PAYMENT_NOT_FOUND_FOR_ORDER, orderId));
+
+        payment.setStatus(PaymentStatus.REFUNDED);
+
+        paymentRepository.saveAndFlush(payment);
+
+        outboxWriter.publishPaymentRefundedEvent(orderId, paymentIntentId, triggerEventId);
+        log.info("Refund completed successfully for orderId={}", orderId);
+    }
+
+    @Transactional
+    public void failRefund(UUID orderId,
+                           String paymentIntentId,
+                           String failureReason,
+                           String triggerEventId) {
+
+        Payment payment = paymentRepository.findByOrderId(orderId, Payment.class)
+              .orElseThrow(() -> new PaymentNotFoundException(PAYMENT_NOT_FOUND_FOR_ORDER, orderId));
+
+        payment.setStatus(PaymentStatus.REFUND_FAILED);
+        paymentRepository.save(payment);
+
+        outboxWriter.publishRefundFailedEvent(orderId, paymentIntentId, failureReason, triggerEventId);
+        log.warn("Refund marked as FAILED for orderId={}", orderId);
     }
 }

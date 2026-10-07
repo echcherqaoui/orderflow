@@ -1,6 +1,7 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.service;
 
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
+import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload.PaymentError;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,8 +19,9 @@ import org.springframework.web.client.RestClient;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
-import static com.echcherqaoui.orderflow.payment.mockstripe.MockPaymentIntentStatus.SUCCEEDED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REFUNDED;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.REQUIRES_PAYMENT_METHOD;
+import static com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus.SUCCEEDED;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -29,6 +31,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -112,8 +115,8 @@ class MockStripeWebhookDispatcherTest {
     class SuccessfulDispatch {
 
         @Test
-        @DisplayName("serializes payload, calculates signature header, and posts webhook via RestClient")
-        void dispatchWebhookAsync_success_postsExpectedBodyAndSignature() {
+        @DisplayName("serializes payload, calculates signature header, and posts payment.succeeded webhook via RestClient")
+        void dispatchWebhookAsync_paymentSucceeded_postsExpectedBodyAndSignature() {
             doAnswer(invocation -> {
                 ((Runnable) invocation.getArgument(0)).run();
                 return null;
@@ -148,6 +151,51 @@ class MockStripeWebhookDispatcherTest {
 
             assertThat(signature).isEqualTo(expectedSig);
         }
+
+        @Test
+        @DisplayName("dispatches charge.refunded webhook event successfully")
+        void dispatchWebhookAsync_chargeRefunded_postsExpectedEventType() {
+            doAnswer(invocation -> {
+                ((Runnable) invocation.getArgument(0)).run();
+                return null;
+            }).when(webhookDeliveryExecutor).execute(any(Runnable.class));
+
+            mockRestClientPipeline();
+
+            dispatcher.dispatchWebhookAsync(PAYMENT_INTENT_ID, AMOUNT_CENTS, REFUNDED, null, 1);
+
+            then(requestBodySpec).should().body(bodyCaptor.capture());
+
+            byte[] postedBody = bodyCaptor.getValue();
+            assertThat(new String(postedBody, UTF_8))
+                  .contains("charge.refunded")
+                  .contains(PAYMENT_INTENT_ID)
+                  .contains("refunded");
+        }
+
+        @Test
+        @DisplayName("dispatches failed event with payment error payload")
+        void dispatchWebhookAsync_failedEvent_postsExpectedError() {
+            doAnswer(invocation -> {
+                ((Runnable) invocation.getArgument(0)).run();
+                return null;
+            }).when(webhookDeliveryExecutor).execute(any(Runnable.class));
+
+            mockRestClientPipeline();
+
+            PaymentError error = new PaymentError("card_declined", "Card was declined.");
+
+            dispatcher.dispatchWebhookAsync(PAYMENT_INTENT_ID, AMOUNT_CENTS, REQUIRES_PAYMENT_METHOD, error, 1);
+
+            then(requestBodySpec).should().body(bodyCaptor.capture());
+
+            byte[] postedBody = bodyCaptor.getValue();
+            assertThat(new String(postedBody, UTF_8))
+                  .contains("payment_intent.payment_failed")
+                  .contains(PAYMENT_INTENT_ID)
+                  .contains("card_declined")
+                  .contains("Card was declined.");
+        }
     }
 
     @Nested
@@ -175,7 +223,7 @@ class MockStripeWebhookDispatcherTest {
         @Test
         @DisplayName("gracefully handles JsonProcessingException during serialization without submitting to executor")
         void dispatchWebhookAsync_serializationError_abortsEarly() throws JsonProcessingException {
-            ObjectMapper failingMapper = org.mockito.Mockito.mock(ObjectMapper.class);
+            ObjectMapper failingMapper = mock(ObjectMapper.class);
             dispatcher = new MockStripeWebhookDispatcher(
                   restClient,
                   webhookDeliveryExecutor,

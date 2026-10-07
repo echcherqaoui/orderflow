@@ -1,9 +1,12 @@
 package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitializationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentInitiatedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentRefundedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.RefundFailedEvent;
 import com.google.protobuf.Message;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +36,9 @@ public class SchemaRegistryWarmer {
         warm(PaymentInitiatedEvent.getDefaultInstance());
         warm(PaymentInitializationFailedEvent.getDefaultInstance());
         warm(PaymentCancelledEvent.getDefaultInstance());
+        warm(PaymentChargedEvent.getDefaultInstance());
         warm(PaymentFailedEvent.getDefaultInstance());
+        warm(PaymentRefundedEvent.getDefaultInstance());
+        warm(RefundFailedEvent.getDefaultInstance());
     }
 }

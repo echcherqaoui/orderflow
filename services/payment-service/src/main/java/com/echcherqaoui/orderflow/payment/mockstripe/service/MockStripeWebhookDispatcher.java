@@ -1,5 +1,6 @@
-package com.echcherqaoui.orderflow.payment.mockstripe;
+package com.echcherqaoui.orderflow.payment.mockstripe.service;
 
+import com.echcherqaoui.orderflow.payment.mockstripe.model.MockPaymentIntentStatus;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockPspProperties;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload;
 import com.echcherqaoui.orderflow.payment.mockstripe.dto.MockStripeWebhookPayload.Data;
