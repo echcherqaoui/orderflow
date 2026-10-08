@@ -4,6 +4,8 @@ import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderE
 import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.sse.SseEmitterRegistry;
@@ -199,6 +201,62 @@ class OrderSagaEventListenerTest {
         @DisplayName("null event throws NullPointerException")
         void handleInventoryConfirmationFailed_nullEvent_throwsNullPointerException() {
             assertThatThrownBy(() -> listener.handleInventoryConfirmationFailed(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentRefunded()")
+    class HandlePaymentRefunded {
+
+        @Test
+        @DisplayName("sends ORDER_FAILED_OUT_OF_STOCK_REFUNDED status and completes emitter")
+        void handlePaymentRefunded_sendsStatusAndCompletes() {
+            PaymentRefundedOrderEvent event = new PaymentRefundedOrderEvent(orderId, "RESERVATION_EXPIRED");
+
+            listener.handlePaymentRefunded(event);
+
+            then(emitterRegistry).should().sendAndComplete(
+                  orderId,
+                  Map.of(
+                        "status", "ORDER_FAILED_OUT_OF_STOCK_REFUNDED",
+                        "reason", "RESERVATION_EXPIRED"
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void handlePaymentRefunded_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.handlePaymentRefunded(null))
+                  .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("onPaymentRefundFailed()")
+    class OnPaymentRefundFailed {
+
+        @Test
+        @DisplayName("sends ORDER_FAILED_REFUND_FAILED status and completes emitter")
+        void onPaymentRefundFailed_sendsStatusAndCompletes() {
+            PaymentRefundFailedOrderEvent event = new PaymentRefundFailedOrderEvent(orderId, "GATEWAY_TIMEOUT");
+
+            listener.onPaymentRefundFailed(event);
+
+            then(emitterRegistry).should().sendAndComplete(
+                  orderId,
+                  Map.of(
+                        "status", "ORDER_FAILED_REFUND_FAILED",
+                        "message", "Your refund could not be processed automatically. Our support team has been notified."
+                  )
+            );
+        }
+
+        @Test
+        @DisplayName("null event throws NullPointerException")
+        void onPaymentRefundFailed_nullEvent_throwsNullPointerException() {
+            assertThatThrownBy(() -> listener.onPaymentRefundFailed(null))
                   .isInstanceOf(NullPointerException.class);
         }
     }

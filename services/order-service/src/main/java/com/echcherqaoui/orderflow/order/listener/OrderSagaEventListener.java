@@ -4,6 +4,8 @@ import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderE
 import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.sse.SseEmitterRegistry;
@@ -95,5 +97,26 @@ public class OrderSagaEventListener {
                     "reason", event.reason()
               )
         );
+    }
+
+    @Async("taskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handlePaymentRefunded(@lombok.NonNull PaymentRefundedOrderEvent event) {
+        emitterRegistry.sendAndComplete(
+              event.orderId(),
+              Map.of(
+                    "status", "ORDER_FAILED_OUT_OF_STOCK_REFUNDED",
+                    "reason", event.reason()
+              )
+        );
+    }
+
+    @Async("taskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPaymentRefundFailed(@lombok.NonNull PaymentRefundFailedOrderEvent event) {
+        emitterRegistry.sendAndComplete(event.orderId(), Map.of(
+              "status", "ORDER_FAILED_REFUND_FAILED",
+              "message", "Your refund could not be processed automatically. Our support team has been notified."
+        ));
     }
 }

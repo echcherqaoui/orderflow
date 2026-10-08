@@ -1,7 +1,7 @@
-package com.echcherqaoui.orderflow.order.messaging.handler.inventory;
+package com.echcherqaoui.orderflow.order.messaging.handler.payment;
 
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
-import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmationFailedEvent;
+import com.echcherqaoui.orderflow.contracts.payment.events.v1.RefundFailedEvent;
 import com.echcherqaoui.orderflow.kafka.EventHandler;
 import com.echcherqaoui.orderflow.order.service.OrderSagaService;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
@@ -12,17 +12,17 @@ import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-public class InventoryConfirmationFailedHandler implements EventHandler<InventoryConfirmationFailedEvent> {
+public class RefundFailedEventHandler implements EventHandler<RefundFailedEvent> {
 
     private final OrderSagaService orderSagaService;
 
     @Override
     public String getDescriptorFullName() {
-        return InventoryConfirmationFailedEvent.getDescriptor().getFullName();
+        return RefundFailedEvent.getDescriptor().getFullName();
     }
 
     @Override
-    public boolean isSignatureValid(@lombok.NonNull InventoryConfirmationFailedEvent event,
+    public boolean isSignatureValid(@lombok.NonNull RefundFailedEvent event,
                                     @lombok.NonNull SignatureService signatureService) {
         MessageMetadata metadata = event.getMetadata();
 
@@ -31,18 +31,19 @@ public class InventoryConfirmationFailedHandler implements EventHandler<Inventor
               metadata.getMessageId(),
               metadata.getCorrelationId(),
               String.valueOf(metadata.getOccurredAt().getSeconds()),
-              event.getCartId(),
-              event.getReason()
+              event.getPaymentIntentId(),
+              event.getFailureReason()
         );
     }
 
     @Override
-    public void handle(@lombok.NonNull InventoryConfirmationFailedEvent event) {
+    public void handle(@lombok.NonNull RefundFailedEvent event) {
         UUID orderId = UUID.fromString(event.getMetadata().getCorrelationId());
 
-        orderSagaService.handleInventoryConfirmationFailed(
+        orderSagaService.handlePaymentRefundFailed(
               orderId,
-              event.getCartId(),
+              event.getPaymentIntentId(),
+              event.getFailureReason(),
               event.getMetadata().getMessageId()
         );
     }

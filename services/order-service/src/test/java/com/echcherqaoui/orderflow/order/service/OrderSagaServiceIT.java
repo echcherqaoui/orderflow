@@ -564,11 +564,10 @@ class OrderSagaServiceIT implements WithPostgres {
             order.setPaymentIntentId("pi_123456789");
             entityManager.merge(order);
 
-            String cartId = "cart_123";
             String reason = "OUT_OF_STOCK";
             String triggerEventId = UUID.randomUUID().toString();
 
-            orderSagaService.handleInventoryConfirmationFailed(order.getId(), cartId, reason, triggerEventId);
+            orderSagaService.handleInventoryConfirmationFailed(order.getId(), reason, triggerEventId);
 
             entityManager.flush();
             entityManager.clear();
@@ -599,7 +598,7 @@ class OrderSagaServiceIT implements WithPostgres {
             int initialHistorySize = findSagaHistory(order.getId()).size();
 
             orderSagaService.handleInventoryConfirmationFailed(
-                  order.getId(), "cart_123", "OUT_OF_STOCK", UUID.randomUUID().toString()
+                  order.getId(), "OUT_OF_STOCK", UUID.randomUUID().toString()
             );
 
             entityManager.flush();
@@ -610,6 +609,146 @@ class OrderSagaServiceIT implements WithPostgres {
             assertThat(updated.getStatus()).isEqualTo(OrderStatus.PENDING);
             assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
             assertThat(findOutboxRows(order.getId())).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentRefunded()")
+    class HandlePaymentRefunded {
+
+        @Test
+        @Transactional
+        @DisplayName("valid step REVERSING_PAYMENT updates status CANCELLED, step REFUNDED, records saga history, and writes OrderCancelledIntegrationEvent outbox row")
+        void handlePaymentRefunded_validStep_completesOrderCancellationAndPublishesCancelledEvent() {
+            when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
+                  .thenReturn(new byte[]{0, 1, 2});
+
+            Order order = createAndPersistOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
+            order.setPaymentIntentId("pi_refunded_123");
+            entityManager.merge(order);
+
+            String triggerEventId = UUID.randomUUID().toString();
+
+            orderSagaService.handlePaymentRefunded(order.getId(), "pi_refunded_123", triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REFUNDED);
+
+            List<OrderSagaHistory> history = findSagaHistory(order.getId());
+            assertThat(history).hasSize(2);
+            assertThat(history.get(0).getStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
+            assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
+            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.REFUNDED);
+            assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(1);
+            assertThat(outboxRows.getFirst().getAggregateType()).isEqualTo("order.events");
+            assertThat(outboxRows.getFirst().getEventType()).isEqualTo("OrderCancelledIntegrationEvent");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale PaymentRefundedEvent for unexpected saga step is ignored without modifying order, writing history, or creating outbox events")
+        void handlePaymentRefunded_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.REFUNDED, OrderStatus.CANCELLED);
+            int initialHistorySize = findSagaHistory(order.getId()).size();
+
+            orderSagaService.handlePaymentRefunded(order.getId(), "pi_stale", UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REFUNDED);
+            assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
+            assertThat(findOutboxRows(order.getId())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("throws ResourceNotFoundException when target order does not exist")
+        void handlePaymentRefunded_notFound_throwsResourceNotFoundException() {
+            UUID randomOrderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(randomOrderId, "pi_123", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentRefundFailed()")
+    class HandlePaymentRefundFailed {
+
+        @Test
+        @Transactional
+        @DisplayName("valid step REVERSING_PAYMENT updates status CANCELLED, reason REFUND_FAILED, step MANUAL_INTERVENTION_REQUIRED, records history, and writes outbox event")
+        void handlePaymentRefundFailed_validStep_transitionsToManualInterventionAndPublishesOutbox() {
+            when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
+                  .thenReturn(new byte[]{0, 1, 2});
+
+            Order order = createAndPersistOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
+            order.setPaymentIntentId("pi_refund_fail_123");
+            entityManager.merge(order);
+
+            String reason = "GATEWAY_TIMEOUT";
+            String triggerEventId = UUID.randomUUID().toString();
+
+            orderSagaService.handlePaymentRefundFailed(order.getId(), "pi_refund_fail_123", reason, triggerEventId);
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(updated.getCancellationReason()).isEqualTo(CancellationReason.REFUND_FAILED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.MANUAL_INTERVENTION_REQUIRED);
+
+            List<OrderSagaHistory> history = findSagaHistory(order.getId());
+            assertThat(history).hasSize(2);
+            assertThat(history.get(0).getStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
+            assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.FAILED);
+            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.MANUAL_INTERVENTION_REQUIRED);
+            assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(1);
+            assertThat(outboxRows.getFirst().getAggregateType()).isEqualTo("order.events");
+            assertThat(outboxRows.getFirst().getEventType()).isEqualTo("OrderCancelledIntegrationEvent");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale PaymentRefundFailedEvent for unexpected saga step is ignored without modifying order or side effects")
+        void handlePaymentRefundFailed_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.MANUAL_INTERVENTION_REQUIRED, OrderStatus.CANCELLED);
+            int initialHistorySize = findSagaHistory(order.getId()).size();
+
+            orderSagaService.handlePaymentRefundFailed(order.getId(), "pi_stale", "GATEWAY_TIMEOUT", UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.MANUAL_INTERVENTION_REQUIRED);
+            assertThat(findSagaHistory(order.getId())).hasSize(initialHistorySize);
+            assertThat(findOutboxRows(order.getId())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("throws ResourceNotFoundException when target order does not exist")
+        void handlePaymentRefundFailed_notFound_throwsResourceNotFoundException() {
+            UUID randomOrderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(randomOrderId, "pi_123", "GATEWAY_TIMEOUT", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
         }
     }
 }

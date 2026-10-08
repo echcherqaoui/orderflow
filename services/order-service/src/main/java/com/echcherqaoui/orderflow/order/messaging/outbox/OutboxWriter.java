@@ -176,7 +176,7 @@ public class OutboxWriter {
               .setReason(reason)
               .build();
 
-            persist(event, orderIdStr, ORDER_EVENTS_AGGREGATE);
+        persist(event, orderIdStr, ORDER_EVENTS_AGGREGATE);
     }
 
     @Transactional(propagation = MANDATORY)
