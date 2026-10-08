@@ -5,6 +5,7 @@ import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.exception.domain.ResourceNotFoundException;
@@ -515,7 +516,7 @@ class OrderSagaServiceTest {
 
             given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
 
-            orderSagaService.handleInventoryConfirmationFailed(orderId, cartId, reason, triggerEventId);
+            orderSagaService.handleInventoryConfirmationFailed(orderId, reason, triggerEventId);
 
             assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.CANCELLING);
             assertThat(existingOrder.getCancellationReason()).isEqualTo(CancellationReason.RESERVATION_EXPIRED);
@@ -539,7 +540,7 @@ class OrderSagaServiceTest {
             Order existingOrder = createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
             given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
 
-            orderSagaService.handleInventoryConfirmationFailed(orderId, cartId, "OUT_OF_STOCK", triggerEventId);
+            orderSagaService.handleInventoryConfirmationFailed(orderId, "OUT_OF_STOCK", triggerEventId);
 
             assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.INITIALIZING_PAYMENT);
             assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.PENDING);
@@ -553,10 +554,222 @@ class OrderSagaServiceTest {
         void handleInventoryConfirmationFailed_notFound_throwsResourceNotFoundException() {
             given(orderRepository.findById(orderId)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> orderSagaService.handleInventoryConfirmationFailed(orderId, cartId, "OUT_OF_STOCK", triggerEventId))
+            assertThatThrownBy(() -> orderSagaService.handleInventoryConfirmationFailed(orderId, "OUT_OF_STOCK", triggerEventId))
                   .isInstanceOf(ResourceNotFoundException.class);
 
             verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
+        }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentRefunded()")
+    class HandlePaymentRefunded {
+
+        @Test
+        @DisplayName("valid step REVERSING_PAYMENT: sets status CANCELLED, step REFUNDED, logs transition, publishes outbox and application events")
+        void handlePaymentRefunded_validStep_completesSagaAndPublishesEvents() {
+            Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            existingOrder.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handlePaymentRefunded(orderId, "pi_refunded_123", triggerEventId);
+
+            assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.REFUNDED);
+
+            then(orderRepository).should().save(existingOrder);
+            then(sagaStepLogger).should().logTransition(
+                  eq(orderId),
+                  argThat(closed -> closed != null && closed.step() == SagaStep.REVERSING_PAYMENT && closed.status() == SagaStepStatus.COMPLETED),
+                  argThat(opened -> opened != null && opened.step() == SagaStep.REFUNDED && opened.status() == SagaStepStatus.COMPLETED),
+                  eq("PaymentRefundedEvent"),
+                  eq(triggerEventId)
+            );
+            then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.RESERVATION_EXPIRED.name());
+        }
+
+        @Test
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handlePaymentRefunded_staleStep_ignoresEvent() {
+            Order existingOrder = createOrder(SagaStep.REFUNDED, OrderStatus.CANCELLED);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handlePaymentRefunded(orderId, "pi_stale_123", triggerEventId);
+
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.REFUNDED);
+            then(orderRepository).should(never()).save(any());
+            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("missing order throws ResourceNotFoundException and halts execution")
+        void handlePaymentRefunded_notFound_throwsResourceNotFoundException() {
+            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(orderId, "pi_123", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+
+            then(orderRepository).should(never()).save(any());
+            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("outbox publication failure propagates exception and halts event publishing")
+        void handlePaymentRefunded_outboxWriterFails_propagatesException() {
+            Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            existingOrder.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            RuntimeException outboxException = new RuntimeException("Kafka Outbox persistence failed");
+            willThrow(outboxException)
+                  .given(outboxWriter)
+                  .publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.RESERVATION_EXPIRED.name());
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(orderId, "pi_refunded_123", triggerEventId))
+                  .isSameAs(outboxException);
+
+            then(orderRepository).should().save(existingOrder);
+            then(sagaStepLogger).should().logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(eventPublisher);
+        }
+
+        @Test
+        @DisplayName("null orderId throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefunded_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(null, "pi_123", triggerEventId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("null paymentIntentId throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefunded_nullPaymentIntentId_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(orderId, null, triggerEventId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("null triggerEventId throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefunded_nullTriggerEventId_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(orderId, "pi_123", null))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
+        }
+    }
+
+    @Nested
+    @DisplayName("handlePaymentRefundFailed()")
+    class HandlePaymentRefundFailed {
+
+        @Test
+        @DisplayName("valid step REVERSING_PAYMENT: sets status CANCELLED, reason REFUND_FAILED, step MANUAL_INTERVENTION_REQUIRED, publishes outbox and application events")
+        void handlePaymentRefundFailed_validStep_transitionsToManualInterventionAndPublishesEvents() {
+            Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            existingOrder.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            String failureReason = "GATEWAY_TIMEOUT";
+            orderSagaService.handlePaymentRefundFailed(orderId, "pi_refund_fail_123", failureReason, triggerEventId);
+
+            assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(existingOrder.getCancellationReason()).isEqualTo(CancellationReason.REFUND_FAILED);
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.MANUAL_INTERVENTION_REQUIRED);
+
+            then(orderRepository).should().save(existingOrder);
+            then(sagaStepLogger).should().logTransition(
+                  eq(orderId),
+                  argThat(closed -> closed != null && closed.step() == SagaStep.REVERSING_PAYMENT && closed.status() == SagaStepStatus.FAILED),
+                  argThat(opened -> opened != null && opened.step() == SagaStep.MANUAL_INTERVENTION_REQUIRED && opened.status() == SagaStepStatus.COMPLETED),
+                  eq("PaymentRefundFailedEvent"),
+                  eq(triggerEventId)
+            );
+            then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.REFUND_FAILED.name());
+        }
+
+        @Test
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handlePaymentRefundFailed_staleStep_ignoresEvent() {
+            Order existingOrder = createOrder(SagaStep.MANUAL_INTERVENTION_REQUIRED, OrderStatus.CANCELLED);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handlePaymentRefundFailed(orderId, "pi_stale_123", "GATEWAY_TIMEOUT", triggerEventId);
+
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.MANUAL_INTERVENTION_REQUIRED);
+            then(orderRepository).should(never()).save(any());
+            then(sagaStepLogger).should(never()).logTransition(any(), any(), any(), any(), any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("missing order throws ResourceNotFoundException and halts execution")
+        void handlePaymentRefundFailed_notFound_throwsResourceNotFoundException() {
+            given(orderRepository.findById(orderId)).willReturn(Optional.empty());
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, "pi_123", "GATEWAY_TIMEOUT", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+
+            then(orderRepository).should(never()).save(any());
+            verifyNoInteractions(sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("event publisher failure propagates exception after database save, saga step log, and outbox publish")
+        void handlePaymentRefundFailed_eventPublisherFails_propagatesException() {
+            Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            RuntimeException publisherException = new RuntimeException("ApplicationEventPublisher error");
+            willThrow(publisherException)
+                  .given(eventPublisher)
+                  .publishEvent(any(PaymentRefundFailedOrderEvent.class));
+
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, "pi_123", "GATEWAY_TIMEOUT", triggerEventId))
+                  .isSameAs(publisherException);
+
+            then(orderRepository).should().save(existingOrder);
+            then(sagaStepLogger).should().logTransition(any(), any(), any(), any(), any());
+            then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.REFUND_FAILED.name());
+        }
+
+        @Test
+        @DisplayName("null orderId throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefundFailed_nullOrderId_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(null, "pi_123", "GATEWAY_TIMEOUT", triggerEventId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("null paymentIntentId throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefundFailed_nullPaymentIntentId_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, null, "GATEWAY_TIMEOUT", triggerEventId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("null reason throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefundFailed_nullReason_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, "pi_123", null, triggerEventId))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("null triggerEventId throws NullPointerException via Lombok NonNull")
+        void handlePaymentRefundFailed_nullTriggerEventId_throwsNullPointerException() {
+            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, "pi_123", "GATEWAY_TIMEOUT", null))
+                  .isInstanceOf(NullPointerException.class);
+
+            verifyNoInteractions(orderRepository, sagaStepLogger, outboxWriter, eventPublisher);
         }
     }
 }

@@ -5,12 +5,15 @@ import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.exception.domain.ResourceNotFoundException;
 import com.echcherqaoui.orderflow.order.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.order.model.Order;
 import com.echcherqaoui.orderflow.order.model.OrderItem;
+import com.echcherqaoui.orderflow.order.model.enums.CancellationReason;
 import com.echcherqaoui.orderflow.order.model.enums.OrderStatus;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStep;
 import com.echcherqaoui.orderflow.order.repository.OrderRepository;
@@ -27,11 +30,14 @@ import java.util.UUID;
 import static com.echcherqaoui.orderflow.order.exception.code.OrderErrorCode.ORDER_NOT_FOUND;
 import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.PAYMENT_FAILED;
 import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.RESERVATION_EXPIRED;
+import static com.echcherqaoui.orderflow.order.model.enums.OrderStatus.CANCELLED;
+import static com.echcherqaoui.orderflow.order.model.enums.OrderStatus.CANCELLING;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CONFIRMING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.EXTENDING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INITIALIZING_PAYMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INVENTORY_RESERVED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.PAYMENT_SESSION_ACTIVE;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REFUNDED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSING_PAYMENT;
@@ -79,7 +85,7 @@ public class OrderSagaService {
         Order order = getOrder(orderId);
         if (isStaleOrDuplicate(order, expectedStep, triggerEventName)) return;
 
-        order.setStatus(OrderStatus.CANCELLING)
+        order.setStatus(CANCELLING)
               .setCancellationReason(PAYMENT_FAILED)
               .setCurrentSagaStep(REVERSING_INVENTORY);
 
@@ -97,7 +103,10 @@ public class OrderSagaService {
         eventPublisher.publishEvent(new OrderPaymentFailedEvent(orderId, reason));
     }
 
-    // OrderSagaService
+    // =========================================================================
+    // ORDER CREATION & INITIALIZATION (INITIALIZING_PAYMENT)
+    // =========================================================================
+
     @Transactional
     public void handleOrderReserved(@lombok.NonNull UUID orderId,
                                     @lombok.NonNull CreateOrderRequest request,
@@ -131,20 +140,6 @@ public class OrderSagaService {
     }
 
     @Transactional
-    public void handlePaymentFailed(@lombok.NonNull UUID orderId,
-                                    @lombok.NonNull String reason,
-                                    @lombok.NonNull String triggerEventId) {
-        // Handle payment charge failure from active payment state
-        initiateInventoryCompensation(
-              orderId,
-              PAYMENT_SESSION_ACTIVE,
-              "PaymentFailedEvent",
-              reason,
-              triggerEventId
-        );
-    }
-
-    @Transactional
     public void handlePaymentInitializationFailed(@lombok.NonNull UUID orderId,
                                                   @lombok.NonNull String failureReason,
                                                   @lombok.NonNull String triggerEventId) {
@@ -157,6 +152,10 @@ public class OrderSagaService {
               triggerEventId
         );
     }
+
+    // =========================================================================
+    // RESERVATION EXTENSION (EXTENDING_INVENTORY)
+    // =========================================================================
 
     @Transactional
     public void handlePaymentInitiated(@lombok.NonNull UUID orderId,
@@ -184,56 +183,6 @@ public class OrderSagaService {
     }
 
     @Transactional
-    public void handleInventoryReleased(@lombok.NonNull UUID orderId,
-                                        @lombok.NonNull String cartId,
-                                        @lombok.NonNull String triggerEventId) {
-        Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, REVERSING_INVENTORY, "InventoryReleasedEvent")) return;
-
-        order.setStatus(OrderStatus.CANCELLED)
-              .setCurrentSagaStep(SagaStep.REVERSED);
-
-        orderRepository.save(order);
-
-        sagaStepLogger.logTransition(
-              orderId,
-              SagaStepLogger.StepLog.completed(REVERSING_INVENTORY, Map.of("cartId", cartId)),
-              SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("cartId", cartId)),
-              "InventoryReleasedEvent",
-              triggerEventId
-        );
-
-        // Outbox: Publish terminal OrderCancelledEvent for downstream analytics/audit
-        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
-    }
-
-    @Transactional
-    public void handleReservationExtensionFailed(@lombok.NonNull UUID orderId,
-                                                 String messageId,
-                                                 @lombok.NonNull String cartId,
-                                                 @lombok.NonNull String reason,
-                                                 @lombok.NonNull String triggerEventId) {
-        Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, "ReservationExtensionFailedEvent")) return;
-
-        order.setStatus(OrderStatus.CANCELLING)
-              .setCancellationReason(RESERVATION_EXPIRED)
-              .setCurrentSagaStep(REVERSING_PAYMENT);
-        orderRepository.save(order);
-
-        sagaStepLogger.logTransition(
-              orderId,
-              SagaStepLogger.StepLog.failed(EXTENDING_INVENTORY, Map.of("reason", reason)),
-              SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("cartId", cartId)),
-              "ReservationExtensionFailedEvent",
-              triggerEventId
-        );
-
-        outboxWriter.publishCancelPaymentCommand(orderId, messageId, order.getPaymentIntentId(), reason);
-        eventPublisher.publishEvent(new ReservationExtensionFailedOrderEvent(orderId, reason));
-    }
-
-    @Transactional
     public void handleReservationExtended(@lombok.NonNull UUID orderId,
                                           @lombok.NonNull String cartId,
                                           @lombok.NonNull Instant newExpiresAt,
@@ -256,30 +205,34 @@ public class OrderSagaService {
     }
 
     @Transactional
-    public void handleInventoryConfirmationFailed(@lombok.NonNull UUID orderId,
-                                                  @lombok.NonNull String cartId,
-                                                  @lombok.NonNull String reason,
-                                                  @lombok.NonNull String triggerEventId) {
+    public void handleReservationExtensionFailed(@lombok.NonNull UUID orderId,
+                                                 String messageId,
+                                                 @lombok.NonNull String cartId,
+                                                 @lombok.NonNull String reason,
+                                                 @lombok.NonNull String triggerEventId) {
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, "InventoryConfirmationFailedEvent")) return;
+        if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, "ReservationExtensionFailedEvent")) return;
 
-        order.setStatus(OrderStatus.CANCELLING)
+        order.setStatus(CANCELLING)
               .setCancellationReason(RESERVATION_EXPIRED)
               .setCurrentSagaStep(REVERSING_PAYMENT);
-
         orderRepository.save(order);
 
         sagaStepLogger.logTransition(
               orderId,
-              SagaStepLogger.StepLog.failed(CONFIRMING_INVENTORY, Map.of("reason", reason)),
-              SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("reason", reason)),
-              "InventoryConfirmationFailedEvent",
+              SagaStepLogger.StepLog.failed(EXTENDING_INVENTORY, Map.of("reason", reason)),
+              SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("cartId", cartId)),
+              "ReservationExtensionFailedEvent",
               triggerEventId
         );
 
-        outboxWriter.publishRefundPaymentCommand(orderId, triggerEventId, order.getPaymentIntentId(), reason);
-        eventPublisher.publishEvent(new InventoryConfirmationFailedOrderEvent(orderId, reason));
+        outboxWriter.publishCancelPaymentCommand(orderId, messageId, order.getPaymentIntentId(), reason);
+        eventPublisher.publishEvent(new ReservationExtensionFailedOrderEvent(orderId, reason));
     }
+
+    // =========================================================================
+    // PAYMENT CAPTURE (PAYMENT_SESSION_ACTIVE)
+    // =========================================================================
 
     @Transactional
     public void handlePaymentCharged(@lombok.NonNull UUID orderId,
@@ -303,16 +256,85 @@ public class OrderSagaService {
     }
 
     @Transactional
+    public void handlePaymentFailed(@lombok.NonNull UUID orderId,
+                                    @lombok.NonNull String reason,
+                                    @lombok.NonNull String triggerEventId) {
+        // Handle payment charge failure from active payment state
+        initiateInventoryCompensation(
+              orderId,
+              PAYMENT_SESSION_ACTIVE,
+              "PaymentFailedEvent",
+              reason,
+              triggerEventId
+        );
+    }
+
+    // =========================================================================
+    // INVENTORY CONFIRMATION (CONFIRMING_INVENTORY)
+    // =========================================================================
+
+    @Transactional
+    public void handleInventoryConfirmationFailed(@lombok.NonNull UUID orderId,
+                                                  @lombok.NonNull String reason,
+                                                  @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, "InventoryConfirmationFailedEvent")) return;
+
+        order.setStatus(CANCELLING)
+              .setCancellationReason(RESERVATION_EXPIRED)
+              .setCurrentSagaStep(REVERSING_PAYMENT);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.failed(CONFIRMING_INVENTORY, Map.of("reason", reason)),
+              SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("reason", reason)),
+              "InventoryConfirmationFailedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishRefundPaymentCommand(orderId, triggerEventId, order.getPaymentIntentId(), reason);
+        eventPublisher.publishEvent(new InventoryConfirmationFailedOrderEvent(orderId, reason));
+    }
+
+    // =========================================================================
+    // COMPENSATION TERMINAL BRANCHES (REVERSING_INVENTORY, REVERSING_PAYMENT)
+    // =========================================================================
+
+    @Transactional
+    public void handleInventoryReleased(@lombok.NonNull UUID orderId,
+                                        @lombok.NonNull String cartId,
+                                        @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, REVERSING_INVENTORY, "InventoryReleasedEvent")) return;
+
+        order.setStatus(CANCELLED)
+              .setCurrentSagaStep(SagaStep.REVERSED);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.completed(REVERSING_INVENTORY, Map.of("cartId", cartId)),
+              SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("cartId", cartId)),
+              "InventoryReleasedEvent",
+              triggerEventId
+        );
+
+        // Outbox: Publish terminal OrderCancelledEvent for downstream analytics/audit
+        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
+    }
+
+    @Transactional
     public void handlePaymentCancelled(@lombok.NonNull UUID orderId,
                                        String paymentIntentId,
                                        @lombok.NonNull String triggerEventId) {
         Order order = getOrder(orderId);
 
-        // Guard: Enforce order is in CANCELLING status and REVERSING_PAYMENT step
         if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentCancelledEvent")) return;
 
-        // State Update: Finalize terminal cancelled state
-        order.setStatus(OrderStatus.CANCELLED)
+        order.setStatus(CANCELLED)
               .setCurrentSagaStep(REVERSED);
 
         orderRepository.save(order);
@@ -329,4 +351,55 @@ public class OrderSagaService {
         outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
     }
 
+    @Transactional
+    public void handlePaymentRefunded(@lombok.NonNull UUID orderId,
+                                      @lombok.NonNull String paymentIntentId,
+                                      @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+
+        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentRefundedEvent")) return;
+
+        order.setStatus(CANCELLED)
+              .setCurrentSagaStep(REFUNDED);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.completed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId)),
+              SagaStepLogger.StepLog.completed(REFUNDED, Map.of("reason", order.getCancellationReason().name())),
+              "PaymentRefundedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
+        eventPublisher.publishEvent(new PaymentRefundedOrderEvent(orderId, order.getCancellationReason().name()));
+    }
+
+    @Transactional
+    public void handlePaymentRefundFailed(@lombok.NonNull UUID orderId,
+                                          @lombok.NonNull String paymentIntentId,
+                                          @lombok.NonNull String reason,
+                                          @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+
+        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentRefundFailedEvent")) return;
+
+        order.setStatus(OrderStatus.CANCELLED)
+              .setCancellationReason(CancellationReason.REFUND_FAILED)
+              .setCurrentSagaStep(SagaStep.MANUAL_INTERVENTION_REQUIRED);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.failed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId, "reason", reason)),
+              SagaStepLogger.StepLog.completed(SagaStep.MANUAL_INTERVENTION_REQUIRED, Map.of("reason", reason)),
+              "PaymentRefundFailedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
+        eventPublisher.publishEvent(new PaymentRefundFailedOrderEvent(orderId, reason));
+    }
 }
