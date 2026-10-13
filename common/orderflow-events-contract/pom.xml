@@ -89,6 +89,9 @@
                                 <orderflow.inventory.events.v1.ReservationExtensionFailedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.ReservationExtensionFailedEvent>
                                 <orderflow.inventory.events.v1.InventoryConfirmedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.InventoryConfirmedEvent>
                                 <orderflow.inventory.events.v1.InventoryConfirmationFailedEvent>src/main/proto/orderflow/inventory/events/v1/inventory_events.proto</orderflow.inventory.events.v1.InventoryConfirmationFailedEvent>
+
+                                <!-- Entitlement Event Schemas (RecordNameStrategy) -->
+                                <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>src/main/proto/orderflow/entitlement/events/v1/entitlement_events.proto</orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
                             </subjects>
 
                             <schemaTypes>
@@ -120,6 +123,9 @@
                                 <orderflow.inventory.events.v1.ReservationExtensionFailedEvent>PROTOBUF</orderflow.inventory.events.v1.ReservationExtensionFailedEvent>
                                 <orderflow.inventory.events.v1.InventoryConfirmedEvent>PROTOBUF</orderflow.inventory.events.v1.InventoryConfirmedEvent>
                                 <orderflow.inventory.events.v1.InventoryConfirmationFailedEvent>PROTOBUF</orderflow.inventory.events.v1.InventoryConfirmationFailedEvent>
+
+                                <!-- Entitlement Events -->
+                                <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>PROTOBUF</orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
 
                                 <!-- Order Events -->
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>PROTOBUF</orderflow.order.v1.OrderCancelledIntegrationEvent>
@@ -251,6 +257,13 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.inventory.events.v1.InventoryConfirmationFailedEvent>
+
+                                <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
 
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>
                                     <reference>
