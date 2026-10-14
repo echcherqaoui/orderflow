@@ -39,6 +39,12 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Spring Transaction & Data Access Exceptions (e.g. DataIntegrityViolationException) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- ── gRPC server  -->
         <dependency>

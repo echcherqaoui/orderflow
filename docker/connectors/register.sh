@@ -16,3 +16,6 @@ PG_HOST="${PG_CONNECT_HOST}" envsubst '${PG_USER} ${PG_PASSWORD} ${PG_PORT} ${PA
 
 PG_HOST="${PG_CONNECT_HOST}" envsubst '${PG_USER} ${PG_PASSWORD} ${PG_PORT} ${INVENTORY_DB} ${PG_HOST}' < docker/connectors/inventory-outbox-connector.json | \
   curl -X POST http://localhost:${KF_CONNECT_PORT}/connectors -H "Content-Type: application/json" -d @-
+
+PG_HOST="${PG_CONNECT_HOST}" envsubst '${PG_USER} ${PG_PASSWORD} ${PG_PORT} ${ENTITLEMENT_DB} ${PG_HOST}' < docker/connectors/entitlement-outbox-connector.json | \
+  curl -X POST http://localhost:${KF_CONNECT_PORT}/connectors -H "Content-Type: application/json" -d @-

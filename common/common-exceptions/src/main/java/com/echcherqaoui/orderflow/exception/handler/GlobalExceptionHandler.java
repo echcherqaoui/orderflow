@@ -8,6 +8,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,6 +18,7 @@ import org.springframework.web.context.request.WebRequest;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.echcherqaoui.orderflow.exception.core.CommonErrorCode.DUPLICATE_KEY_VIOLATION;
 import static com.echcherqaoui.orderflow.exception.core.CommonErrorCode.VALIDATION_FAILED;
 
 @RestControllerAdvice
@@ -85,5 +87,22 @@ public class GlobalExceptionHandler {
         log.warn("Param validation failed [{}]: {}", request.getDescription(false), errors);
 
         return buildValidationErrorResponse(errors, request);
+    }
+
+    // ─── Database Integrity & Unique Constraints ──────────────────
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(@NonNull DataIntegrityViolationException ex,
+                                                                      @NonNull WebRequest request) {
+        log.warn("Data integrity violation [{}]: {}", request.getDescription(false), ex.getMostSpecificCause().getMessage());
+
+        IErrorCode errorCode = DUPLICATE_KEY_VIOLATION;
+
+        ErrorResponse response = new ErrorResponse(
+              errorCode.getCode(),
+              errorCode.getMessage(),
+              ExceptionUtils.sanitizePath(request)
+        );
+
+        return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
     }
 }

@@ -18,7 +18,7 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 
 ## Dependency Security Overrides
 
-The root `pom.xml` pins some transitive dependencies above the versions managed by Spring Boot / Confluent to fix known CVEs (Jackson 2 and 3, Netty, Bouncy Castle, Tomcat, Logback, Wire, zstd-jni, lz4-java, snappy-java, Kafka, PostgreSQL driver, Avro, httpclient).
+The root `pom.xml` pins some transitive dependencies above the versions managed by Spring Boot / Confluent to fix known CVEs (Jackson 2 and 3, Netty, Bouncy Castle, Tomcat, Logback, zstd-jni, lz4-java, snappy-java, Kafka, PostgreSQL driver, Avro, httpclient).
 
 * Each override has a `Fixes CVE-...` comment in `dependencyManagement`.
 * Remove an override only after the managing BOM ships a fixed version, then re-scan.

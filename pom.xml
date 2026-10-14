@@ -66,7 +66,6 @@
         <jackson2.version>2.22.3</jackson2.version>
         <httpclient.version>4.5.14</httpclient.version>
         <avro.version>1.11.5</avro.version>
-        <wire.version>7.0.0-alpha03</wire.version>
         <logback.version>1.6.5</logback.version>
         <postgresql.version>42.7.14</postgresql.version>
         <bouncycastle.version>1.86</bouncycastle.version>
@@ -251,20 +250,6 @@
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpclient</artifactId>
                 <version>${httpclient.version}</version>
-            </dependency>
-
-            <!-- Fixes CVE-2026-45799 -->
-            <dependency>
-                <groupId>com.squareup.wire</groupId>
-                <artifactId>wire-runtime-jvm</artifactId>
-                <version>${wire.version}</version>
-            </dependency>
-
-            <!-- No CVE: pinned to keep wire-schema-jvm on the same version as wire-runtime-jvm -->
-            <dependency>
-                <groupId>com.squareup.wire</groupId>
-                <artifactId>wire-schema-jvm</artifactId>
-                <version>${wire.version}</version>
             </dependency>
 
             <!-- Fixes CVE-2025-33042 -->

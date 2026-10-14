@@ -69,7 +69,7 @@ management:
       post:
         enabled: true
 
-# ── Order Config ─────────────────────────────────────────────
+# ── Payment Config ─────────────────────────────────────────────
 app:
   security:
     hmac:
