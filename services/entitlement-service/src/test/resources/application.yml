@@ -1,0 +1,15 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # ── Database Migration (Flyway) ─────────────────────────────
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+    locations:
+      - classpath:db/migration

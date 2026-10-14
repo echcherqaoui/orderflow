@@ -7,13 +7,22 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 ## Technical Stack & Dependencies
 
 * **Java:** 21 (LTS)
-* **Framework:** Spring Boot `4.0.7` | Spring Cloud `2025.1.2` | Spring gRPC `1.0.3`
+* **Framework:** Spring Boot `4.1.1` | Spring Cloud `2025.1.3` | Spring gRPC `1.0.3`
 * **Build System:** Apache Maven (Root Multi-Module POM)
 * **Database & Migrations:** PostgreSQL 17 | Flyway
 * **Event Streaming & Schemas:** Apache Kafka (KRaft) | Confluent Schema Registry `7.7.7` | Protobuf `3.25.5`
 * **Change Data Capture:** Debezium PostgreSQL Connector `3.1.2` (Outbox Pattern)
 * **Infrastructure as Code:** Terraform `1.14` (`Mongey/kafka` provider `0.12.1`)
 * **Developer Tools:** pgAdmin 4 | Kafka UI
+---
+
+## Dependency Security Overrides
+
+The root `pom.xml` pins some transitive dependencies above the versions managed by Spring Boot / Confluent to fix known CVEs (Jackson 2 and 3, Netty, Bouncy Castle, Tomcat, Logback, zstd-jni, lz4-java, snappy-java, Kafka, PostgreSQL driver, Avro, httpclient).
+
+* Each override has a `Fixes CVE-...` comment in `dependencyManagement`.
+* Remove an override only after the managing BOM ships a fixed version, then re-scan.
+* Verify with `./mvnw dependency:tree`.
 
 ---
 

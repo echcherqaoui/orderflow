@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package orderflow.entitlement.events.v1;
+
+option java_package = "com.echcherqaoui.orderflow.contracts.entitlement.events.v1";
+option java_multiple_files = true;
+
+import "orderflow/common/v1/metadata.proto";
+
+message DigitalStockProvisionedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string product_id = 2;
+  int64 price_cents = 3;
+  int32 count_added = 4;
+}

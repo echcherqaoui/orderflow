@@ -36,8 +36,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <!-- Framework Dependencies BOM Versions -->
-        <spring-boot.version>4.0.7</spring-boot.version>
-        <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <spring-boot.version>4.1.1</spring-boot.version>
+        <spring-cloud.version>2025.1.3</spring-cloud.version>
         <spring-grpc.version>1.0.3</spring-grpc.version>
 
         <!-- Annotation Processors -->
@@ -62,9 +62,19 @@
         <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
 
         <!-- Security Overrides -->
-        <httpclient.version>4.5.14</httpclient.version> <!-- CVE-2020-13956 -->
-        <avro.version>1.11.5</avro.version> <!-- CVE-2024-58103 -->
-        <wire-runtime-jvm.version>5.2.0</wire-runtime-jvm.version>  <!-- CVE-2025-33042 -->
+        <jackson3.version>3.2.3</jackson3.version>
+        <jackson2.version>2.22.3</jackson2.version>
+        <httpclient.version>4.5.14</httpclient.version>
+        <avro.version>1.11.5</avro.version>
+        <logback.version>1.6.5</logback.version>
+        <postgresql.version>42.7.14</postgresql.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
+        <zstd-jni.version>1.5.7-14</zstd-jni.version>
+        <lz4-java.version>1.11.4</lz4-java.version>
+        <snappy-java.version>1.1.10.9</snappy-java.version>
+        <kafka_2.13.version>4.3.1</kafka_2.13.version>
+        <tomcat.version>11.0.26</tomcat.version>
+        <netty.version>4.2.18.Final</netty.version>
     </properties>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -106,6 +116,42 @@
     ════════════════════════════════════════════════════════════════ -->
     <dependencyManagement>
         <dependencies>
+            <!-- Fixes CVE-2026-89407, CVE-2026-89425, CVE-2026-68497, CVE-2026-91777, CVE-2026-91776, CVE-2026-83557, CVE-2026-19032 -->
+            <dependency>
+                <groupId>tools.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson3.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Fixes CVE-2026-89407, CVE-2026-89425, CVE-2026-68497, CVE-2026-91777, CVE-2026-91776, CVE-2026-83557, CVE-2026-19032 -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson2.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Fixes CVE-2026-17508, CVE-2026-71889, CVE-2026-71891 -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bc-jdk18on-bom</artifactId>
+                <version>${bouncycastle.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Fixes CVE-2026-93569, CVE-2026-93567, CVE-2026-93568, CVE-2026-93488, CVE-2026-93558, CVE-2026-93565, CVE-2026-89044, CVE-2026-93573, CVE-2026-93566 -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- Spring Boot BOM: Manages core Spring Boot starter versions -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -199,26 +245,89 @@
                 <version>${protobuf.version}</version>
             </dependency>
 
-            <!-- Fix CVE-2020-13956 -->
+            <!-- Fixes CVE-2020-13956 -->
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpclient</artifactId>
                 <version>${httpclient.version}</version>
             </dependency>
 
-            <!-- Fix CVE-2024-58103 -->
-            <dependency>
-                <groupId>com.squareup.wire</groupId>
-                <artifactId>wire-runtime-jvm</artifactId>
-                <version>${wire-runtime-jvm.version}</version>
-            </dependency>
-
-            <!-- CVE-2025-33042 -->
+            <!-- Fixes CVE-2025-33042 -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
                 <scope>compile</scope>
+            </dependency>
+
+            <!-- Fixes CVE-2026-19880 -->
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+
+            <!-- CVE-2026-13006 -->
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-core</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-65637, CVE-2026-65905, CVE-2026-65182, CVE-2026-68525, CVE-2026-86350, CVE-2026-68569, CVE-2026-65183, CVE-2026-66422, CVE-2026-77762, CVE-2026-68763, CVE-2026-65927, CVE-2026-78383, CVE-2026-75973, CVE-2026-78437, CVE-2026-73581, CVE-2026-77756 -->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-core</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+
+            <!--Fixes CVE-2026-76183, CVE-2026-77791, CVE-2026-87022, CVE-2026-79677, CVE-2026-73180-->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-websocket</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+
+            <!-- No CVE: pinned to keep tomcat-embed-el on the same version as core and websocket -->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-el</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-107314, CVE-2026-107315 -->
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${postgresql.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-87795, CVE-2026-87823, CVE-2026-89046, CVE-2026-90560, CVE-2026-87825, CVE-2026-87877, CVE-2026-87824, CVE-2026-90852, CVE-2026-89045 -->
+            <dependency>
+                <groupId>com.github.luben</groupId>
+                <artifactId>zstd-jni</artifactId>
+                <version>${zstd-jni.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-106451, CVE-2026-59949, CVE-2026-106453, CVE-2026-106452, CVE-2026-106450, CVE-2026-106449 -->
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4-java.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-90559 -->
+            <dependency>
+                <groupId>org.xerial.snappy</groupId>
+                <artifactId>snappy-java</artifactId>
+                <version>${snappy-java.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-41115 -->
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>kafka_2.13</artifactId>
+                <version>${kafka_2.13.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

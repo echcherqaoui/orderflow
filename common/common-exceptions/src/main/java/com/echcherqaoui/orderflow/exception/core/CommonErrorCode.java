@@ -16,6 +16,7 @@ public enum CommonErrorCode implements IErrorCode {
     INVALID_SIGNATURE("SEC_403", "Security violation: Invalid HMAC signature. [EventID: %s]", 403),
 
     CONFLICT("GEN_409", "Conflict: %s", 409),
+    DUPLICATE_KEY_VIOLATION("DB_409", "Database constraint violation: Duplicate key or integrity constraint failure", 409),
 
     INTERNAL_SERVER_ERROR("GEN_500", "An unexpected error occurred [ID: %s]", 500),
     EVENT_PROCESSING_FAILED("PROCESSING_500", "Failed to process event '%s' at offset %d", 500),

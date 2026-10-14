@@ -167,6 +167,40 @@ resource "kafka_topic" "orderflow_order_events_dlt" {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ENTITLEMENT SERVICE TOPICS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# --- entitlement events & DLT ---
+
+resource "kafka_topic" "orderflow_entitlement_events" {
+  name               = "orderflow.entitlement.events"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_entitlement_events_dlt" {
+  name               = "orderflow.entitlement.events.dlt"
+  replication_factor = 1
+  partitions         = 1 # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DEBEZIUM CDC HEARTBEAT TOPIC
 # ─────────────────────────────────────────────────────────────────────────────
 resource "kafka_topic" "debezium_heartbeat" {
