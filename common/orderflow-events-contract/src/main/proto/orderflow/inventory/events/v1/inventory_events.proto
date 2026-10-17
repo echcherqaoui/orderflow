@@ -36,3 +36,15 @@ message InventoryConfirmationFailedEvent {
   string cart_id = 2;
   string reason = 3;
 }
+
+message StockProvisionedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string item_name = 2;
+  int32 quantity = 3;
+}
+
+message StockProvisionRejectedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string item_name = 2;
+  string reason = 3;
+}
