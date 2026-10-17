@@ -32,15 +32,15 @@ public class Item {
 
     @Min(0)
     @Column(name = "price_cents", nullable = false)
-    private long priceCents;
+    private Long priceCents;
 
     @Min(1)
     @Column(name = "total_early_access_units", nullable = false)
-    private int totalEarlyAccessUnits;
+    private Integer totalEarlyAccessUnits;
 
     @Min(0)
     @Column(name = "remaining_units", nullable = false)
-    private int remainingUnits;
+    private Integer remainingUnits;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -49,4 +49,13 @@ public class Item {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    public void addStock(int quantity) {
+        this.totalEarlyAccessUnits += quantity;
+        this.remainingUnits += quantity;
+    }
+
+    public boolean hasPrice(long priceCents) {
+        return this.priceCents.equals(priceCents);
+    }
 }

@@ -73,3 +73,4 @@ orderflow:
   kafka:
     topics:
       inventory-commands: orderflow.inventory.commands
+      item-events: orderflow.entitlement.item-events

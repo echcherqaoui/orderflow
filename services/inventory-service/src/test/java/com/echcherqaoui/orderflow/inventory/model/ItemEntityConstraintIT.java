@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
 import com.echcherqaoui.orderflow.inventory.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
+import jakarta.persistence.Query;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -40,9 +41,23 @@ class ItemEntityConstraintIT  implements WithPostgres {
     private Item newItem(int total, int remaining) {
         return new Item()
               .setName("test-item-" + UUID.randomUUID())
-              .setPriceCents(1000)
+              .setPriceCents(1000L)
               .setTotalEarlyAccessUnits(total)
               .setRemainingUnits(remaining);
+    }
+
+    private static UUID insertItem(EntityManager em, int total, int remaining) {
+        UUID id = UUID.randomUUID();
+        em.createNativeQuery("""
+            INSERT INTO items (id, name, price_cents, total_early_access_units, remaining_units, created_at, updated_at)
+            VALUES (:id, :name, 1000, :total, :remaining, now(), now())
+        """).setParameter("id", id)
+              .setParameter("name", "item-" + id)
+              .setParameter("total", total)
+              .setParameter("remaining", remaining)
+              .executeUpdate();
+
+        return id;
     }
 
     @Nested
@@ -68,7 +83,7 @@ class ItemEntityConstraintIT  implements WithPostgres {
         @Test
         @DisplayName("price_cents = 0 (lower bound) is valid at DB level")
         void priceCents_lowerBoundary_isValid() {
-            Item item = newItem(10, 10).setPriceCents(0);
+            Item item = newItem(10, 10).setPriceCents(0L);
             assertThatCode(() -> itemRepository.saveAndFlush(item)).doesNotThrowAnyException();
         }
 
@@ -134,21 +149,6 @@ class ItemEntityConstraintIT  implements WithPostgres {
         );
     }
 
-    private static UUID insertItem(EntityManager em, int total, int remaining) {
-        UUID id = UUID.randomUUID();
-        em.createNativeQuery("""
-                        INSERT INTO items (id, name, price_cents, total_early_access_units, remaining_units, created_at, updated_at)
-                        VALUES (:id, :name, 1000, :total, :remaining, now(), now())
-                    """)
-              .setParameter("id", id)
-              .setParameter("name", "item-" + id)
-              .setParameter("total", total)
-              .setParameter("remaining", remaining)
-              .executeUpdate();
-
-        return id;
-    }
-
     @Test
     @DisplayName("duplicate item name triggers uq_items_name unique constraint")
     void duplicateName_rejectedByUniqueConstraint() {
@@ -165,14 +165,15 @@ class ItemEntityConstraintIT  implements WithPostgres {
     }
 
     @Test
-    @DisplayName("Demonstrate schema gap: total_early_access_units <= 0 is rejected by Bean Validation but bypasses DB check")
-    void totalUnitsZero_bypassesDb_becauseNoCheckConstraintExists() {
-        // Native SQL bypasses @Min(1) Bean Validation because there is no DB CHECK constraint for total_early_access_units
-        assertThatCode(() -> entityManager.createNativeQuery("""
-                    INSERT INTO items (id, name, price_cents, total_early_access_units, remaining_units, created_at, updated_at)
-                    VALUES (gen_random_uuid(), :name, 1000, 0, 0, now(), now())
-                    """)
-              .setParameter("name", "zero-total-" + UUID.randomUUID())
-              .executeUpdate()).doesNotThrowAnyException();
+    @DisplayName("total_early_access_units <= 0 is rejected by the DB check constraint")
+    void totalUnitsZero_isRejectedByDb_becauseCheckConstraintExists() {
+        Query insert = entityManager.createNativeQuery("""
+            INSERT INTO items (id, name, price_cents, total_early_access_units, remaining_units, created_at, updated_at)
+            VALUES (gen_random_uuid(), :name, 1000, 0, 0, now(), now())
+        """).setParameter("name", "zero-total-" + UUID.randomUUID());
+
+        assertThatThrownBy(insert::executeUpdate)
+              .isInstanceOf(PersistenceException.class)
+              .hasMessageContaining("chk_items_total_early_access_units_positive");
     }
 }

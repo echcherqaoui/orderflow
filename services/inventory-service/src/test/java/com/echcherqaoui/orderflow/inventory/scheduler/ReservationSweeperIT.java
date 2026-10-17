@@ -61,7 +61,7 @@ class ReservationSweeperIT implements WithPostgres {
     private Item newItem(int total, int remaining) {
         return new Item()
               .setName("test-item-" + UUID.randomUUID())
-              .setPriceCents(1000)
+              .setPriceCents(1000L)
               .setTotalEarlyAccessUnits(total)
               .setRemainingUnits(remaining);
     }

@@ -8,6 +8,8 @@ import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirm
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionRejectedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionedEvent;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.echcherqaoui.orderflow.util.InstantConverter;
 import com.google.protobuf.Message;
@@ -27,21 +29,25 @@ import static org.springframework.transaction.annotation.Propagation.MANDATORY;
 @RequiredArgsConstructor
 public class OutboxWriter {
 
-    private static final String INVENTORY_EVENTS_TOPIC = "orderflow.inventory.events";
-    private static final String AGGREGATE_TYPE = "inventory.events";
+    private static final String TOPIC_PREFIX = "orderflow.";
+    private static final String SAGA_EVENTS = "inventory.events";
+    private static final String ITEM_EVENTS = "inventory.item-events";
     private static final int BASE_PARAM_COUNT = 3;
 
     private final OutboxEventRepository outboxEventRepository;
     private final SignatureService signatureService;
     private final KafkaProtobufSerializer<Message> serializer;
 
-    private void persist(@lombok.NonNull Message message, @lombok.NonNull String orderId) {
-        byte[] payload = serializer.serialize(INVENTORY_EVENTS_TOPIC, message);
+    private void persist(@lombok.NonNull Message message,
+                         @lombok.NonNull String aggregateId,
+                         @lombok.NonNull String aggregateType) {
+        String topic = TOPIC_PREFIX + aggregateType;
+        byte[] payload = serializer.serialize(topic, message);
 
         OutboxEvent event = new OutboxEvent()
               .setId(UUID.randomUUID())
-              .setAggregateType(AGGREGATE_TYPE)
-              .setAggregateId(orderId)
+              .setAggregateType(aggregateType)
+              .setAggregateId(aggregateId)
               .setEventType(message.getClass().getSimpleName())
               .setPayload(payload)
               .setCreatedAt(Instant.now());
@@ -50,7 +56,7 @@ public class OutboxWriter {
     }
 
     @NonNull
-    private MessageMetadata createMetadata(String orderIdStr,
+    private MessageMetadata createMetadata(String correlationId,
                                            String causationId,
                                            String... extraSignatureParams) {
         String messageId = UUID.randomUUID().toString();
@@ -60,7 +66,7 @@ public class OutboxWriter {
         String[] signatureParams = new String[BASE_PARAM_COUNT + extraLength];
 
         signatureParams[0] = messageId;
-        signatureParams[1] = orderIdStr;
+        signatureParams[1] = correlationId;
         signatureParams[2] = String.valueOf(occurredAt.getSeconds());
 
         if (extraLength > 0)
@@ -70,7 +76,7 @@ public class OutboxWriter {
 
         MessageMetadata.Builder builder = MessageMetadata.newBuilder()
               .setMessageId(messageId)
-              .setCorrelationId(orderIdStr)
+              .setCorrelationId(correlationId)
               .setOccurredAt(occurredAt)
               .setSignature(signature);
 
@@ -101,7 +107,7 @@ public class OutboxWriter {
               .setNewExpiresAt(expiresAtTs)
               .build();
 
-        persist(event, orderIdStr);
+        persist(event, orderIdStr, SAGA_EVENTS);
     }
 
     @Transactional(propagation = MANDATORY)
@@ -124,7 +130,7 @@ public class OutboxWriter {
               .setReason(reason)
               .build();
 
-        persist(event, orderIdStr);
+        persist(event, orderIdStr, SAGA_EVENTS);
     }
 
     @Transactional(propagation = MANDATORY)
@@ -140,7 +146,7 @@ public class OutboxWriter {
               .setCartId(cartId)
               .build();
 
-        persist(event, orderIdStr);
+        persist(event, orderIdStr, SAGA_EVENTS);
     }
 
     @Transactional(propagation = MANDATORY)
@@ -157,7 +163,7 @@ public class OutboxWriter {
               .setOrderId(orderIdStr)
               .build();
 
-        persist(event, orderIdStr);
+        persist(event, orderIdStr, SAGA_EVENTS);
     }
 
     @Transactional(propagation = MANDATORY)
@@ -180,6 +186,45 @@ public class OutboxWriter {
               .setReason(reason)
               .build();
 
-        persist(event, orderIdStr);
+        persist(event, orderIdStr, SAGA_EVENTS);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishStockProvisionedEvent(@lombok.NonNull String causationId,
+                                             @lombok.NonNull String itemName,
+                                             int quantity) {
+
+        MessageMetadata metadata = createMetadata(
+              itemName,
+              causationId,
+              String.valueOf(quantity)
+        );
+
+        StockProvisionedEvent event = StockProvisionedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setItemName(itemName)
+              .setQuantity(quantity)
+              .build();
+
+        persist(event, itemName, ITEM_EVENTS);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishStockProvisionRejectedEvent(@lombok.NonNull String causationId,
+                                                   @lombok.NonNull String itemName,
+                                                   @lombok.NonNull String reason) {
+        MessageMetadata metadata = createMetadata(
+              itemName,
+              causationId,
+              reason
+        );
+
+        StockProvisionRejectedEvent event = StockProvisionRejectedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setItemName(itemName)
+              .setReason(reason)
+              .build();
+
+        persist(event, itemName, ITEM_EVENTS);
     }
 }

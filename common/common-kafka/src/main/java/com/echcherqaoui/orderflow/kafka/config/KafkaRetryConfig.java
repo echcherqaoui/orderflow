@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.kafka.config;
 import com.echcherqaoui.orderflow.exception.core.EventProcessingException;
 import com.echcherqaoui.orderflow.exception.core.EventSecurityException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -18,7 +19,8 @@ public class KafkaRetryConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public DefaultErrorHandler errorHandler(DeadLetterPublishingRecoverer recoverer) {
+    public DefaultErrorHandler errorHandler(DeadLetterPublishingRecoverer recoverer,
+                                                @lombok.NonNull ObjectProvider<NotRetryableExceptionsProvider> providers) {
         ExponentialBackOff backOff = new ExponentialBackOff();
         backOff.setInitialInterval(1_000L);
         backOff.setMultiplier(2.0);
@@ -32,6 +34,11 @@ public class KafkaRetryConfig {
               EventProcessingException.class,
               EventSecurityException.class
         );
+
+        providers.stream()
+              .flatMap(p -> p.notRetryable().stream())
+              .forEach(handler::addNotRetryableExceptions);
+
 
         handler.setLogLevel(KafkaException.Level.ERROR);
 

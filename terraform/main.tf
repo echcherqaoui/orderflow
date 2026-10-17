@@ -131,6 +131,35 @@ resource "kafka_topic" "orderflow_inventory_events_dlt" {
   }
 }
 
+# --- Inventory Item Events & DLT ---
+
+resource "kafka_topic" "orderflow_inventory_item_events" {
+  name               = "orderflow.inventory.item-events"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_inventory_item_events_dlt" {
+  name               = "orderflow.inventory.item-events.dlt"
+  replication_factor = 1
+  partitions         = 1 # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ORDER SERVICE TOPICS
@@ -190,6 +219,36 @@ resource "kafka_topic" "orderflow_entitlement_events_dlt" {
   name               = "orderflow.entitlement.events.dlt"
   replication_factor = 1
   partitions         = 1 # DLT need only 1 partition
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# --- entitlement item events & DLT ---
+
+resource "kafka_topic" "orderflow_entitlement_item_events" {
+  name               = "orderflow.entitlement.item-events"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_entitlement_item_events_dlt" {
+  name               = "orderflow.entitlement.item-events.dlt"
+  replication_factor = 1
+  partitions         = 1
   config = {
     "cleanup.policy" = "delete"
     "retention.ms"   = local.retention_7_days

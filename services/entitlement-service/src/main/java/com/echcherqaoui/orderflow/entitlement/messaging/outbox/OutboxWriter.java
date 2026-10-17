@@ -24,7 +24,8 @@ import static org.springframework.transaction.annotation.Propagation.MANDATORY;
 public class OutboxWriter {
 
     private static final String TOPIC_PREFIX = "orderflow.";
-    private static final String AGGREGATE_TYPE = "entitlement.events";
+    private static final String SAGA_EVENTS = "entitlement.events";
+    private static final String ITEM_EVENTS = "entitlement.item-events";
     private static final int BASE_PARAM_COUNT = 3;
 
     private final OutboxEventRepository outboxEventRepository;
@@ -32,13 +33,14 @@ public class OutboxWriter {
     private final KafkaProtobufSerializer<Message> serializer;
 
     private void persist(@lombok.NonNull Message message,
-                         @lombok.NonNull String aggregateId) {
-        String topic = TOPIC_PREFIX + AGGREGATE_TYPE;
+                         @lombok.NonNull String aggregateId,
+                         @lombok.NonNull String aggregateType) {
+        String topic = TOPIC_PREFIX + aggregateType;
         byte[] payload = serializer.serialize(topic, message);
 
         OutboxEvent event = new OutboxEvent()
               .setId(UUID.randomUUID())
-              .setAggregateType(AGGREGATE_TYPE)
+              .setAggregateType(aggregateType)
               .setAggregateId(aggregateId)
               .setEventType(message.getClass().getSimpleName())
               .setPayload(payload)
@@ -96,6 +98,6 @@ public class OutboxWriter {
               .setCountAdded(count)
               .build();
 
-        persist(event, productId);
+        persist(event, productId, ITEM_EVENTS);
     }
 }

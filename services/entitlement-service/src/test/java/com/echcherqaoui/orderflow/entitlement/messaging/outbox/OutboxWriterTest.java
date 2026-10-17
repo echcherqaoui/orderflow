@@ -28,9 +28,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class OutboxWriterTest {
-
-    private static final String EXPECTED_TOPIC = "orderflow.entitlement.events";
-    private static final String AGGREGATE_TYPE = "entitlement.events";
+    private static final String ITEM_EVENTS_TOPIC = "orderflow.entitlement.item-events";
+    private static final String ITEM_EVENTS_AGGREGATE_TYPE = "entitlement.item-events";
 
     @Mock
     private OutboxEventRepository outboxEventRepository;
@@ -71,7 +70,7 @@ class OutboxWriterTest {
         void publishDigitalStockProvisionedEvent_success_buildsProtobufSignsAndSavesEvent() {
             String dummySignature = "hmac-signature-12345";
             given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
-            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+            given(serializer.serialize(eq(ITEM_EVENTS_TOPIC), any(Message.class))).willReturn(serializedPayload);
 
             outboxWriter.publishDigitalStockProvisionedEvent(productId, priceCents, count);
 
@@ -90,7 +89,7 @@ class OutboxWriterTest {
             assertThat(UUID.fromString(capturedMessageId)).isNotNull();
             assertThat(capturedSeconds).isGreaterThan(0L);
 
-            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            then(serializer).should().serialize(eq(ITEM_EVENTS_TOPIC), messageCaptor.capture());
             Message capturedMessage = messageCaptor.getValue();
             assertThat(capturedMessage).isInstanceOf(DigitalStockProvisionedEvent.class);
 
@@ -107,7 +106,7 @@ class OutboxWriterTest {
             OutboxEvent savedEvent = outboxEventCaptor.getValue();
 
             assertThat(savedEvent.getId()).isNotNull();
-            assertThat(savedEvent.getAggregateType()).isEqualTo(AGGREGATE_TYPE);
+            assertThat(savedEvent.getAggregateType()).isEqualTo(ITEM_EVENTS_AGGREGATE_TYPE);
             assertThat(savedEvent.getAggregateId()).isEqualTo(productId);
             assertThat(savedEvent.getEventType()).isEqualTo("DigitalStockProvisionedEvent");
             assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
