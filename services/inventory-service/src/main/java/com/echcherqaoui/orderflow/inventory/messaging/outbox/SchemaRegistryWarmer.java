@@ -5,6 +5,8 @@ import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirm
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionRejectedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionedEvent;
 import com.google.protobuf.Message;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import lombok.RequiredArgsConstructor;
@@ -36,5 +38,7 @@ public class SchemaRegistryWarmer {
         warm(InventoryReleasedEvent.getDefaultInstance());
         warm(InventoryConfirmedEvent.getDefaultInstance());
         warm(InventoryConfirmationFailedEvent.getDefaultInstance());
+        warm(StockProvisionedEvent.getDefaultInstance());
+        warm(StockProvisionRejectedEvent.getDefaultInstance());
     }
 }

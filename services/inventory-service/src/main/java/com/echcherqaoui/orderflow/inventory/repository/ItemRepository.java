@@ -2,11 +2,14 @@ package com.echcherqaoui.orderflow.inventory.repository;
 
 import com.echcherqaoui.orderflow.inventory.model.Item;
 import com.echcherqaoui.orderflow.inventory.projection.ItemSummaryDto;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -37,4 +40,8 @@ public interface ItemRepository extends JpaRepository<Item, UUID>, ItemRepositor
                WHERE i.id IN :itemIds
           """)
     void incrementStockBatch(@Param("itemIds") Set<UUID> itemIds);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("FROM Item i WHERE i.name = :name")
+    Optional<Item> findByNameForUpdate(@Param("name") String name);
 }

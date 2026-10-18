@@ -27,8 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @ActiveProfiles("test")
 class OutboxWriterIT implements WithPostgres, WithKafka {
 
-    private static final String AGGREGATE_TYPE = "entitlement.events";
     private static final String TOPIC_CONTEXT = "entitlement-serialization-context";
+    private static final String ITEM_EVENTS_AGGREGATE_TYPE = "entitlement.item-events";
 
     @Autowired
     private OutboxWriter outboxWriter;
@@ -57,7 +57,7 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
                     OutboxEvent.class
               )
               .setParameter("productId", productId)
-              .setParameter("aggregateType", AGGREGATE_TYPE)
+              .setParameter("aggregateType", ITEM_EVENTS_AGGREGATE_TYPE)
               .getResultList();
 
         assertThat(rows).hasSize(1);

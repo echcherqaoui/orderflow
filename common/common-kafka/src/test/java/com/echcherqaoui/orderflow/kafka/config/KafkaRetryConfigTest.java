@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -36,9 +38,18 @@ class KafkaRetryConfigTest {
         consumerRecord = new ConsumerRecord<>("test-topic", 0, 100L, "key", "payload");
     }
 
+    @lombok.NonNull
+    private ObjectProvider<NotRetryableExceptionsProvider> providers(NotRetryableExceptionsProvider @lombok.NonNull ... providers) {
+        StaticListableBeanFactory factory = new StaticListableBeanFactory();
+        for (int i = 0; i < providers.length; i++)
+            factory.addBean("provider" + i, providers[i]);
+
+        return factory.getBeanProvider(NotRetryableExceptionsProvider.class);
+    }
+
     @Test
     void errorHandler_routesNonRetryableExceptionsToRecovererImmediately() {
-        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer);
+        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer, providers());
 
         DataIntegrityViolationException dataIntegrityEx = new DataIntegrityViolationException("test");
         DeserializationException deserializationEx = new DeserializationException("test", new byte[0], false, null);
@@ -61,7 +72,7 @@ class KafkaRetryConfigTest {
 
     @Test
     void errorHandler_returnsTrueForNonRetryableException_signalingNoFurtherRetries() {
-        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer);
+        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer, providers());
         EventProcessingException processingEx = mock(EventProcessingException.class);
 
         boolean handled = handler.handleOne(processingEx, consumerRecord, null, null);
@@ -71,7 +82,7 @@ class KafkaRetryConfigTest {
 
     @Test
     void errorHandler_doesNotRouteRetryableExceptionToRecovererOnFirstAttempt() {
-        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer);
+        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer, providers());
         RuntimeException transientEx = new RuntimeException("transient failure");
 
         boolean handled = handler.handleOne(transientEx, consumerRecord, null, null);
@@ -82,7 +93,7 @@ class KafkaRetryConfigTest {
 
     @Test
     void errorHandler_routesRetryableExceptionToRecovererAfterBackoffExhausted() {
-        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer);
+        DefaultErrorHandler handler = kafkaRetryConfig.errorHandler(recoverer, providers());
         RuntimeException transientEx = new RuntimeException("transient failure");
 
         boolean handled = false;

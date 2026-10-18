@@ -44,13 +44,12 @@ class ItemRepositoryCustomImplIT implements WithPostgres {
 
         item1 = itemRepository.saveAndFlush(newItem(100, 10));
         item2 = itemRepository.saveAndFlush(newItem(50, 20));
-
     }
 
     private Item newItem(int total, int remaining) {
         return new Item()
               .setName("test-item-" + UUID.randomUUID())
-              .setPriceCents(1000)
+              .setPriceCents(1000L)
               .setTotalEarlyAccessUnits(total)
               .setRemainingUnits(remaining);
     }
@@ -60,12 +59,17 @@ class ItemRepositoryCustomImplIT implements WithPostgres {
     void incrementStockBatchByCounts_emptyMap_noOp() {
         itemRepositoryCustom.incrementStockBatchByCounts(Collections.emptyMap());
 
-        assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(10);
-        assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(20);
+        Item reloaded1 = itemRepository.findById(item1.getId()).orElseThrow();
+        Item reloaded2 = itemRepository.findById(item2.getId()).orElseThrow();
+
+        assertThat(reloaded1.getRemainingUnits()).isEqualTo(10);
+        assertThat(reloaded1.getTotalEarlyAccessUnits()).isEqualTo(100);
+        assertThat(reloaded2.getRemainingUnits()).isEqualTo(20);
+        assertThat(reloaded2.getTotalEarlyAccessUnits()).isEqualTo(50);
     }
 
     @Test
-    @DisplayName("valid itemCounts map increments remaining_units for corresponding items")
+    @DisplayName("valid itemCounts map increments remaining_units and total_early_access_units")
     void incrementStockBatchByCounts_validMap_updatesUnits() {
         Map<UUID, Integer> increments = Map.of(
               item1.getId(), 5,
@@ -78,8 +82,14 @@ class ItemRepositoryCustomImplIT implements WithPostgres {
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(15);
-        assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(35);
+        Item reloaded1 = itemRepository.findById(item1.getId()).orElseThrow();
+        Item reloaded2 = itemRepository.findById(item2.getId()).orElseThrow();
+
+        assertThat(reloaded1.getRemainingUnits()).isEqualTo(15);
+        assertThat(reloaded1.getTotalEarlyAccessUnits()).isEqualTo(100);
+
+        assertThat(reloaded2.getRemainingUnits()).isEqualTo(35);
+        assertThat(reloaded2.getTotalEarlyAccessUnits()).isEqualTo(50);
     }
 
     @Test
@@ -97,7 +107,10 @@ class ItemRepositoryCustomImplIT implements WithPostgres {
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(20);
+        Item reloaded1 = itemRepository.findById(item1.getId()).orElseThrow();
+
+        assertThat(reloaded1.getRemainingUnits()).isEqualTo(20);
+        assertThat(reloaded1.getTotalEarlyAccessUnits()).isEqualTo(100);
         assertThat(itemRepository.existsById(nonExistentId)).isFalse();
     }
 }
