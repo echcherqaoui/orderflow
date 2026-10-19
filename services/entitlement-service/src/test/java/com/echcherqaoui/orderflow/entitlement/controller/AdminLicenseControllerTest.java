@@ -2,7 +2,7 @@ package com.echcherqaoui.orderflow.entitlement.controller;
 
 import com.echcherqaoui.orderflow.entitlement.dto.BatchIngestionRequest;
 import com.echcherqaoui.orderflow.entitlement.dto.BatchIngestionResponse;
-import com.echcherqaoui.orderflow.entitlement.service.LicenseIngestionService;
+import com.echcherqaoui.orderflow.entitlement.service.LicenseKeyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AdminLicenseControllerTest {
 
     @Mock
-    private LicenseIngestionService ingestionService;
+    private LicenseKeyService ingestionService;
 
     @InjectMocks
     private AdminLicenseController adminLicenseController;

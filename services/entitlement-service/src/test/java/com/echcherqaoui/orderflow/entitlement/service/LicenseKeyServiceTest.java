@@ -15,6 +15,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.AVAILABLE;
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PENDING_PROVISION;
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PROVISION_REJECTED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -22,7 +25,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
-class LicenseIngestionServiceTest {
+class LicenseKeyServiceTest {
 
     @Mock
     private LicenseKeyRepository licenseKeyRepository;
@@ -31,7 +34,7 @@ class LicenseIngestionServiceTest {
     private OutboxWriter outboxWriter;
 
     @InjectMocks
-    private LicenseIngestionService licenseIngestionService;
+    private LicenseKeyService licenseKeyService;
 
     private final String productId = "prod-123";
     private final Long priceCents = 1999L;
@@ -43,7 +46,7 @@ class LicenseIngestionServiceTest {
         @Test
         @DisplayName("null request throws NullPointerException")
         void nullRequest_throwsNullPointerException() {
-            assertThatThrownBy(() -> licenseIngestionService.ingestKeys(null))
+            assertThatThrownBy(() -> licenseKeyService.ingestKeys(null))
                   .isInstanceOf(NullPointerException.class);
         }
 
@@ -53,7 +56,7 @@ class LicenseIngestionServiceTest {
             List<String> keys = List.of("KEY-01", "KEY-02", "KEY-01");
             BatchIngestionRequest request = new BatchIngestionRequest(productId, priceCents, keys);
 
-            assertThatThrownBy(() -> licenseIngestionService.ingestKeys(request))
+            assertThatThrownBy(() -> licenseKeyService.ingestKeys(request))
                   .isInstanceOf(DuplicateKeysException.class);
 
             then(licenseKeyRepository).shouldHaveNoInteractions();
@@ -68,7 +71,7 @@ class LicenseIngestionServiceTest {
 
             given(licenseKeyRepository.findExistingKeyCodes(keys)).willReturn(List.of("KEY-01"));
 
-            assertThatThrownBy(() -> licenseIngestionService.ingestKeys(request))
+            assertThatThrownBy(() -> licenseKeyService.ingestKeys(request))
                   .isInstanceOf(DuplicateKeysException.class);
 
             then(licenseKeyRepository).should().findExistingKeyCodes(keys);
@@ -84,15 +87,58 @@ class LicenseIngestionServiceTest {
 
             given(licenseKeyRepository.findExistingKeyCodes(keys)).willReturn(List.of());
 
-            BatchIngestionResponse response = licenseIngestionService.ingestKeys(request);
+            BatchIngestionResponse response = licenseKeyService.ingestKeys(request);
 
             assertThat(response).isNotNull();
             assertThat(response.productId()).isEqualTo(productId);
             assertThat(response.keysAdded()).isEqualTo(2);
 
             then(licenseKeyRepository).should().findExistingKeyCodes(keys);
-            then(licenseKeyRepository).should().saveAll(org.mockito.ArgumentMatchers.anyList());
+            then(licenseKeyRepository).should().saveAll(anyList());
             then(outboxWriter).should().publishDigitalStockProvisionedEvent(productId, priceCents, 2);
+        }
+    }
+
+    @Nested
+    @DisplayName("completeProvisioning()")
+    class CompleteProvisioning {
+
+        @Test
+        @DisplayName("updates status and logs info when updated count matches expected quantity")
+        void completeProvisioning_matchingCount_updatesSuccessfully() {
+            given(licenseKeyRepository.updateStatusForProduct(productId, PENDING_PROVISION, AVAILABLE))
+                  .willReturn(5);
+
+            licenseKeyService.completeProvisioning(productId, 5);
+
+            then(licenseKeyRepository).should().updateStatusForProduct(productId, PENDING_PROVISION, AVAILABLE);
+        }
+
+        @Test
+        @DisplayName("updates status and logs warning when updated count does not match expected quantity")
+        void completeProvisioning_mismatchCount_logsWarning() {
+            given(licenseKeyRepository.updateStatusForProduct(productId, PENDING_PROVISION, AVAILABLE))
+                  .willReturn(3);
+
+            licenseKeyService.completeProvisioning(productId, 5);
+
+            then(licenseKeyRepository).should().updateStatusForProduct(productId, PENDING_PROVISION, AVAILABLE);
+        }
+    }
+
+    @Nested
+    @DisplayName("rejectProvisioning()")
+    class RejectProvisioning {
+
+        @Test
+        @DisplayName("updates status to PROVISION_REJECTED successfully when pending keys exist")
+        void rejectProvisioning_updatesStatusSuccessfully() {
+            given(licenseKeyRepository.updateStatusForProduct(productId, PENDING_PROVISION, PROVISION_REJECTED))
+                  .willReturn(4);
+
+            licenseKeyService.rejectProvisioning(productId, "Out of stock");
+
+            then(licenseKeyRepository).should().updateStatusForProduct(productId, PENDING_PROVISION, PROVISION_REJECTED);
         }
     }
 }

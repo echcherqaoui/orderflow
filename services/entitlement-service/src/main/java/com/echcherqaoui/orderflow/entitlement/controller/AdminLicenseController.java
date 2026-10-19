@@ -2,7 +2,7 @@ package com.echcherqaoui.orderflow.entitlement.controller;
 
 import com.echcherqaoui.orderflow.entitlement.dto.BatchIngestionRequest;
 import com.echcherqaoui.orderflow.entitlement.dto.BatchIngestionResponse;
-import com.echcherqaoui.orderflow.entitlement.service.LicenseIngestionService;
+import com.echcherqaoui.orderflow.entitlement.service.LicenseKeyService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AdminLicenseController {
 
-    private final LicenseIngestionService ingestionService;
+    private final LicenseKeyService ingestionService;
 
     @PostMapping("/batch")
     public ResponseEntity<BatchIngestionResponse> ingestBatch(@Valid @RequestBody BatchIngestionRequest request) {

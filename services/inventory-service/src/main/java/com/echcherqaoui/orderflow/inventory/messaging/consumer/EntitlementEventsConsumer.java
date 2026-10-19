@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Handles InventoryCommands produced by Order Service into orders.outbox
+ * Handles  EntitlementEvents produced by Entitlement Service into entitlement.item-events topic
  */
 @Component
 @Slf4j

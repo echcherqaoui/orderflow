@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.entitlement.repository;
 
 import com.echcherqaoui.orderflow.entitlement.model.LicenseKey;
+import com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus;
 import com.echcherqaoui.orderflow.entitlement.support.WithPostgres;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,6 +85,66 @@ class LicenseKeyRepositoryIT implements WithPostgres {
             List<String> foundKeys = licenseKeyRepository.findExistingKeyCodes(List.of());
 
             assertThat(foundKeys).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("updateStatusForProduct")
+    class UpdateStatusForProductTests {
+
+        @Test
+        @DisplayName("Updates keys matching product and old status, returns correct count")
+        void updateStatusForProduct_matchingKeys_updatesSuccessfully() {
+            String key1 = "KEY-PENDING-1-" + UUID.randomUUID();
+            String key2 = "KEY-PENDING-2-" + UUID.randomUUID();
+            String otherProductKey = "KEY-OTHER-1-" + UUID.randomUUID();
+
+            LicenseKey pk1 = new LicenseKey()
+                  .setProductId(productId)
+                  .setKeyCode(key1)
+                  .setStatus(LicenseKeyStatus.PENDING_PROVISION)
+                  .setPriceCents(1999L);
+
+            LicenseKey pk2 = new LicenseKey()
+                  .setProductId(productId)
+                  .setKeyCode(key2)
+                  .setStatus(LicenseKeyStatus.PENDING_PROVISION)
+                  .setPriceCents(1999L);
+
+            LicenseKey opk = new LicenseKey()
+                  .setProductId("other-prod")
+                  .setKeyCode(otherProductKey)
+                  .setStatus(LicenseKeyStatus.PENDING_PROVISION)
+                  .setPriceCents(1999L);
+
+            licenseKeyRepository.saveAllAndFlush(List.of(pk1, pk2, opk));
+            entityManager.clear();
+
+            int updatedCount = licenseKeyRepository.updateStatusForProduct(
+                  productId,
+                  LicenseKeyStatus.PENDING_PROVISION,
+                  AVAILABLE
+            );
+
+            assertThat(updatedCount).isEqualTo(2);
+
+            LicenseKey refreshed1 = licenseKeyRepository.findById(pk1.getId()).orElseThrow();
+            assertThat(refreshed1.getStatus()).isEqualTo(AVAILABLE);
+
+            LicenseKey refreshedOther = licenseKeyRepository.findById(opk.getId()).orElseThrow();
+            assertThat(refreshedOther.getStatus()).isEqualTo(LicenseKeyStatus.PENDING_PROVISION);
+        }
+
+        @Test
+        @DisplayName("Returns zero when no keys match product and old status")
+        void updateStatusForProduct_noMatch_returnsZero() {
+            int updatedCount = licenseKeyRepository.updateStatusForProduct(
+                  productId,
+                  LicenseKeyStatus.PENDING_PROVISION,
+                  AVAILABLE
+            );
+
+            assertThat(updatedCount).isZero();
         }
     }
 }

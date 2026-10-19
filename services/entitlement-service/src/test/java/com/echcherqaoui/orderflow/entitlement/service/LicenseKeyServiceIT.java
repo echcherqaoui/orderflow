@@ -12,21 +12,21 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.AVAILABLE;
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PROVISION_REJECTED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@Transactional
-class LicenseIngestionServiceIT implements WithPostgres {
+class LicenseKeyServiceIT implements WithPostgres {
 
     @Autowired
-    private LicenseIngestionService licenseIngestionService;
+    private LicenseKeyService licenseKeyService;
 
     @Autowired
     private LicenseKeyRepository licenseKeyRepository;
@@ -47,7 +47,7 @@ class LicenseIngestionServiceIT implements WithPostgres {
             List<String> keys = List.of("KEY-01-" + UUID.randomUUID(), "KEY-02-" + UUID.randomUUID());
             BatchIngestionRequest request = new BatchIngestionRequest(productId, 1999L, keys);
 
-            BatchIngestionResponse response = licenseIngestionService.ingestKeys(request);
+            BatchIngestionResponse response = licenseKeyService.ingestKeys(request);
 
             assertThat(response).isNotNull();
             assertThat(response.productId()).isEqualTo(productId);
@@ -63,7 +63,7 @@ class LicenseIngestionServiceIT implements WithPostgres {
 
             // Seed database with one existing key
             BatchIngestionRequest initialRequest = new BatchIngestionRequest(productId, 1999L, List.of(duplicateKey));
-            licenseIngestionService.ingestKeys(initialRequest);
+            licenseKeyService.ingestKeys(initialRequest);
 
             long countBefore = licenseKeyRepository.count();
 
@@ -71,7 +71,7 @@ class LicenseIngestionServiceIT implements WithPostgres {
             List<String> newKeys = List.of(duplicateKey, "KEY-NEW-" + UUID.randomUUID());
             BatchIngestionRequest requestWithDuplicates = new BatchIngestionRequest(productId, 1999L, newKeys);
 
-            assertThatThrownBy(() -> licenseIngestionService.ingestKeys(requestWithDuplicates))
+            assertThatThrownBy(() -> licenseKeyService.ingestKeys(requestWithDuplicates))
                   .isInstanceOf(DuplicateKeysException.class);
 
             assertThat(licenseKeyRepository.count()).isEqualTo(countBefore);
@@ -86,10 +86,51 @@ class LicenseIngestionServiceIT implements WithPostgres {
             List<String> keysWithInternalDuplicates = List.of(duplicatedKey, "KEY-UNIQUE-" + UUID.randomUUID(), duplicatedKey);
             BatchIngestionRequest request = new BatchIngestionRequest(productId, 1999L, keysWithInternalDuplicates);
 
-            assertThatThrownBy(() -> licenseIngestionService.ingestKeys(request))
+            assertThatThrownBy(() -> licenseKeyService.ingestKeys(request))
                   .isInstanceOf(DuplicateKeysException.class);
 
             assertThat(licenseKeyRepository.count()).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("completeProvisioning")
+    class CompleteProvisioningTests {
+
+        @Test
+        @DisplayName("transitions pending keys to available successfully")
+        void success_transitionsToAvailable() {
+            String productId = "prod-" + UUID.randomUUID();
+            List<String> keys = List.of("KEY-01-" + UUID.randomUUID(), "KEY-02-" + UUID.randomUUID());
+            licenseKeyService.ingestKeys(new BatchIngestionRequest(productId, 1999L, keys));
+
+            licenseKeyService.completeProvisioning(productId, 2);
+
+            long availableCount = licenseKeyRepository.findAll().stream()
+                  .filter(k -> k.getStatus() == AVAILABLE)
+                  .count();
+
+            assertThat(availableCount).isEqualTo(2);
+        }
+    }
+
+    @Nested
+    @DisplayName("rejectProvisioning")
+    class RejectProvisioningTests {
+
+        @Test
+        @DisplayName("transitions pending keys to rejected successfully")
+        void success_transitionsToRejected() {
+            String productId = "prod-" + UUID.randomUUID();
+            List<String> keys = List.of("KEY-01-" + UUID.randomUUID());
+            licenseKeyService.ingestKeys(new BatchIngestionRequest(productId, 1999L, keys));
+
+            licenseKeyService.rejectProvisioning(productId, "Payment failed");
+
+            long rejectedCount = licenseKeyRepository.findAll().stream()
+                  .filter(k -> k.getStatus() == PROVISION_REJECTED)
+                  .count();
+            assertThat(rejectedCount).isEqualTo(1);
         }
     }
 }

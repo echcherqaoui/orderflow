@@ -66,3 +66,9 @@ app:
 
 api:
   base-path: /api/v1
+
+orderflow:
+  kafka:
+    topics:
+      inventory:
+        item-events: orderflow.inventory.item-events

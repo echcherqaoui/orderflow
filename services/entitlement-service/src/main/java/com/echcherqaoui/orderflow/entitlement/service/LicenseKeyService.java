@@ -5,9 +5,9 @@ import com.echcherqaoui.orderflow.entitlement.dto.BatchIngestionResponse;
 import com.echcherqaoui.orderflow.entitlement.exception.domain.DuplicateKeysException;
 import com.echcherqaoui.orderflow.entitlement.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.entitlement.model.LicenseKey;
-import com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus;
 import com.echcherqaoui.orderflow.entitlement.repository.LicenseKeyRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,9 +16,14 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.AVAILABLE;
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PENDING_PROVISION;
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PROVISION_REJECTED;
+
 @Service
 @RequiredArgsConstructor
-public class LicenseIngestionService {
+@Slf4j
+public class LicenseKeyService {
 
     private final LicenseKeyRepository licenseKeyRepository;
     private final OutboxWriter outboxWriter;
@@ -52,7 +57,7 @@ public class LicenseIngestionService {
                           .setProductId(productId)
                           .setKeyCode(code)
                           .setPriceCents(priceCents)
-                          .setStatus(LicenseKeyStatus.AVAILABLE)
+                          .setStatus(PENDING_PROVISION)
               ).toList();
 
         licenseKeyRepository.saveAll(keysToSave);
@@ -66,6 +71,45 @@ public class LicenseIngestionService {
               "License keys ingested successfully",
               productId,
               count
+        );
+    }
+
+    @Transactional
+    public void completeProvisioning(String productId, int expectedQuantity) {
+        int updatedCount = licenseKeyRepository.updateStatusForProduct(
+              productId,
+              PENDING_PROVISION,
+              AVAILABLE
+        );
+
+        if (updatedCount != expectedQuantity)
+            log.warn(
+                  "Stock provision mismatch for product {}: expected {} keys, but updated {}.",
+                  productId,
+                  expectedQuantity,
+                  updatedCount
+            );
+        else
+            log.info(
+                  "Successfully provisioned {} keys for product {}",
+                  updatedCount,
+                  productId
+            );
+    }
+
+    @Transactional
+    public void rejectProvisioning(String productId, String reason) {
+        int updatedCount = licenseKeyRepository.updateStatusForProduct(
+              productId,
+              PENDING_PROVISION,
+              PROVISION_REJECTED
+        );
+
+        log.warn(
+              "Provisioning rejected for product {} (reason: {}). Marked {} pending keys as rejected.",
+              productId,
+              reason,
+              updatedCount
         );
     }
 }
