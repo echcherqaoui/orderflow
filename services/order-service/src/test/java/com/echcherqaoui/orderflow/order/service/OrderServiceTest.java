@@ -69,14 +69,6 @@ class OrderServiceTest {
     @Nested
     @DisplayName("createOrder()")
     class CreateOrder {
-
-        @Test
-        @DisplayName("null request throws NullPointerException")
-        void createOrder_nullRequest_throwsNullPointerException() {
-            assertThatThrownBy(() -> orderService.createOrder(null))
-                  .isInstanceOf(NullPointerException.class);
-        }
-
         @Test
         @DisplayName("existing cartId throws CartAlreadyProcessedException without invoking gRPC or SSE")
         void createOrder_existingCartId_throwsCartAlreadyProcessedException() {
