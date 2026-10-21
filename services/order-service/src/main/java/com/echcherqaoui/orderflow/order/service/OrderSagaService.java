@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.order.service;
 import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
+import com.echcherqaoui.orderflow.order.events.InventoryConfirmedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
@@ -34,6 +35,7 @@ import static com.echcherqaoui.orderflow.order.model.enums.OrderStatus.CANCELLED
 import static com.echcherqaoui.orderflow.order.model.enums.OrderStatus.CANCELLING;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CONFIRMING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.EXTENDING_INVENTORY;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.GRANTING_ENTITLEMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INITIALIZING_PAYMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INVENTORY_RESERVED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.PAYMENT_SESSION_ACTIVE;
@@ -296,6 +298,34 @@ public class OrderSagaService {
 
         outboxWriter.publishRefundPaymentCommand(orderId, triggerEventId, order.getPaymentIntentId(), reason);
         eventPublisher.publishEvent(new InventoryConfirmationFailedOrderEvent(orderId, reason));
+    }
+
+    @Transactional
+    public void handleInventoryConfirmed(@lombok.NonNull UUID orderId,
+                                         @lombok.NonNull String cartId,
+                                         @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, "InventoryConfirmedEvent")) return;
+
+        order.setCurrentSagaStep(GRANTING_ENTITLEMENT);
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.completed(CONFIRMING_INVENTORY, Map.of("cartId", cartId)),
+              SagaStepLogger.StepLog.started(GRANTING_ENTITLEMENT, Map.of("userId", order.getUserId())),
+              "InventoryConfirmedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishGrantEntitlementCommand(
+              orderId,
+              triggerEventId,
+              order.getUserId(),
+              order.getItems()
+        );
+
+        eventPublisher.publishEvent(new InventoryConfirmedOrderEvent(orderId));
     }
 
     // =========================================================================

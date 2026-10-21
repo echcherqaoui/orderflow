@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.order.messaging.outbox;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
+import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitlementCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
@@ -10,6 +11,7 @@ import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEv
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
+import com.echcherqaoui.orderflow.order.model.OrderItem;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.echcherqaoui.orderflow.util.InstantConverter;
 import com.google.protobuf.Message;
@@ -21,7 +23,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.springframework.transaction.annotation.Propagation.MANDATORY;
 
@@ -33,6 +37,7 @@ public class OutboxWriter {
     private static final String PAYMENT_COMMANDS_AGGREGATE = "payment.commands";
     private static final String INVENTORY_COMMANDS_AGGREGATE = "inventory.commands";
     private static final String ORDER_EVENTS_AGGREGATE = "order.events";
+    private static final String ENTITLEMENT_COMMANDS_AGGREGATE = "entitlement.commands";
     private static final int BASE_PARAM_COUNT = 3;
 
     private final OutboxEventRepository outboxEventRepository;
@@ -219,5 +224,32 @@ public class OutboxWriter {
               .build();
 
         persist(command, orderIdStr, PAYMENT_COMMANDS_AGGREGATE);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishGrantEntitlementCommand(@lombok.NonNull UUID orderId,
+                                               @lombok.NonNull String triggerEventId,
+                                               @lombok.NonNull String userId,
+                                               @lombok.NonNull List<OrderItem> items) {
+        String orderIdStr = orderId.toString();
+
+        List<String> itemIds = items.stream()
+              .map(item -> item.getItemId().toString())
+              .toList();
+
+
+        String[] signatureParams = Stream.concat(Stream.of(userId), itemIds.stream())
+              .toArray(String[]::new);
+
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, signatureParams);
+
+        GrantEntitlementCommand command = GrantEntitlementCommand.newBuilder()
+              .setMetadata(metadata)
+              .setUserId(userId)
+              .setOrderId(orderIdStr)
+              .addAllItemIds(itemIds)
+              .build();
+
+        persist(command, orderIdStr, ENTITLEMENT_COMMANDS_AGGREGATE);
     }
 }

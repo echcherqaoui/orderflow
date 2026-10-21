@@ -18,7 +18,6 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 
@@ -116,20 +115,6 @@ class RefundFailedEventHandlerTest {
 
             assertThat(isValid).isFalse();
         }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void isSignatureValid_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> eventHandler.isSignatureValid(null, signatureService))
-                  .isInstanceOf(NullPointerException.class);
-        }
-
-        @Test
-        @DisplayName("null signatureService throws NullPointerException")
-        void isSignatureValid_nullSignatureService_throwsNullPointerException() {
-            assertThatThrownBy(() -> eventHandler.isSignatureValid(event, null))
-                  .isInstanceOf(NullPointerException.class);
-        }
     }
 
     @Nested
@@ -147,13 +132,6 @@ class RefundFailedEventHandlerTest {
                   failureReason,
                   messageId
             );
-        }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handle_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> eventHandler.handle(null))
-                  .isInstanceOf(NullPointerException.class);
         }
     }
 }

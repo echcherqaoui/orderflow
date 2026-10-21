@@ -198,6 +198,35 @@ resource "kafka_topic" "orderflow_order_events_dlt" {
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTITLEMENT SERVICE TOPICS
 # ─────────────────────────────────────────────────────────────────────────────
+# --- Entitlement Commands & DLT ---
+
+resource "kafka_topic" "orderflow_entitlement_commands" {
+  name               = "orderflow.entitlement.commands"
+  replication_factor = 1
+  partitions         = local.standard_partitions
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "kafka_topic" "orderflow_entitlement_commands_dlt" {
+  name               = "orderflow.entitlement.commands.dlt"
+  replication_factor = 1
+  partitions         = 1
+  config = {
+    "cleanup.policy" = "delete"
+    "retention.ms"   = local.retention_7_days
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
 
 # --- entitlement events & DLT ---
 

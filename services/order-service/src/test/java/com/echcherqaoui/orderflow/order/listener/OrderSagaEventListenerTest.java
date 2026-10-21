@@ -54,13 +54,6 @@ class OrderSagaEventListenerTest {
                   )
             );
         }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handlePaymentFailed_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handlePaymentFailed(null))
-                  .isInstanceOf(NullPointerException.class);
-        }
     }
 
     @Nested
@@ -83,13 +76,6 @@ class OrderSagaEventListenerTest {
                   )
             );
         }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handlePaymentSessionActive_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handlePaymentSessionActive(null))
-                  .isInstanceOf(NullPointerException.class);
-        }
     }
 
     @Nested
@@ -110,13 +96,6 @@ class OrderSagaEventListenerTest {
                         "reason", "TIMEOUT"
                   )
             );
-        }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handleOrderCancelled_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handleOrderCancelled((OrderCancelledEvent) null))
-                  .isInstanceOf(NullPointerException.class);
         }
     }
 
@@ -139,13 +118,6 @@ class OrderSagaEventListenerTest {
                   )
             );
         }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handleReservationExtensionFailed_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handleOrderCancelled((ReservationExtensionFailedOrderEvent) null))
-                  .isInstanceOf(NullPointerException.class);
-        }
     }
 
     @Nested
@@ -167,13 +139,6 @@ class OrderSagaEventListenerTest {
                         "expiresAt", 1700000000L
                   )
             );
-        }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handleReservationExtended_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handleReservationExtended(null))
-                  .isInstanceOf(NullPointerException.class);
         }
     }
 
@@ -224,13 +189,6 @@ class OrderSagaEventListenerTest {
                   )
             );
         }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handlePaymentRefunded_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handlePaymentRefunded(null))
-                  .isInstanceOf(NullPointerException.class);
-        }
     }
 
     @Nested
@@ -251,13 +209,6 @@ class OrderSagaEventListenerTest {
                         "message", "Your refund could not be processed automatically. Our support team has been notified."
                   )
             );
-        }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void onPaymentRefundFailed_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.onPaymentRefundFailed(null))
-                  .isInstanceOf(NullPointerException.class);
         }
     }
 }

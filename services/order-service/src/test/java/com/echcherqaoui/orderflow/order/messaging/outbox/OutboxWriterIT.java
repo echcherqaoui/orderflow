@@ -1,6 +1,7 @@
 package com.echcherqaoui.orderflow.order.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
+import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitlementCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
@@ -8,6 +9,7 @@ import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEv
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
+import com.echcherqaoui.orderflow.order.model.OrderItem;
 import com.echcherqaoui.orderflow.order.support.WithKafka;
 import com.echcherqaoui.orderflow.order.support.WithPostgres;
 import com.google.protobuf.Message;
@@ -316,6 +318,49 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
             String triggerEventId = UUID.randomUUID().toString();
 
             assertThatThrownBy(() -> outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, "REASON"))
+                  .isInstanceOf(IllegalTransactionStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishGrantEntitlementCommand()")
+    class PublishGrantEntitlementCommand {
+
+        @Test
+        @Transactional
+        @DisplayName("persists wire-format outbox row decodable to GrantEntitlementCommand")
+        void publishGrantEntitlementCommand_persistsRealSerializedPayload() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            String userId = "user@example.com";
+            UUID item1Id = UUID.randomUUID();
+            UUID item2Id = UUID.randomUUID();
+            List<OrderItem> items = List.of(
+                  new OrderItem().setItemId(item1Id),
+                  new OrderItem().setItemId(item2Id)
+            );
+
+            outboxWriter.publishGrantEntitlementCommand(orderId, triggerEventId, userId, items);
+
+            OutboxEvent event = findAndAssertSingleOutboxEvent(orderId, "entitlement.commands", "GrantEntitlementCommand");
+            GrantEntitlementCommand decoded = deserialize(event.getPayload(), GrantEntitlementCommand.class);
+
+            assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getUserId()).isEqualTo(userId);
+            assertThat(decoded.getItemIdsList()).containsExactlyInAnyOrder(item1Id.toString(), item2Id.toString());
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+        }
+
+        @Test
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishGrantEntitlementCommand_noTransaction_throwsException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            List<OrderItem> items = List.of(new OrderItem().setItemId(UUID.randomUUID()));
+
+            assertThatThrownBy(() -> outboxWriter.publishGrantEntitlementCommand(orderId, triggerEventId, "user@example.com", items))
                   .isInstanceOf(IllegalTransactionStateException.class);
         }
     }
