@@ -17,7 +17,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 
-import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.AVAILABLE;
+import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PENDING_PROVISION;
 
 @Entity
 @Table(name = "license_keys")
@@ -38,7 +38,7 @@ public class LicenseKey {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private LicenseKeyStatus status = AVAILABLE;
+    private LicenseKeyStatus status = PENDING_PROVISION;
 
     @Column( nullable = false)
     private Long priceCents;
