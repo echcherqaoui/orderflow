@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.DigitalStockProvisionedEvent;
+import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementGrantedEvent;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
 import com.echcherqaoui.orderflow.util.InstantConverter;
 import com.google.protobuf.Message;
@@ -15,7 +16,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.springframework.transaction.annotation.Propagation.MANDATORY;
 
@@ -81,11 +84,13 @@ public class OutboxWriter {
     }
 
     @Transactional(propagation = MANDATORY)
-    public void publishDigitalStockProvisionedEvent(@lombok.NonNull String productId,
+    public void publishDigitalStockProvisionedEvent(@lombok.NonNull UUID itemId,
+                                                    @lombok.NonNull String itemName,
                                                     @lombok.NonNull Long priceCents,
                                                     @lombok.NonNull Integer count) {
+        String itemIdStr = itemId.toString();
         MessageMetadata metadata = createMetadata(
-              productId,
+              itemIdStr,
               null,
               priceCents.toString(),
               count.toString()
@@ -93,11 +98,40 @@ public class OutboxWriter {
 
         DigitalStockProvisionedEvent event = DigitalStockProvisionedEvent.newBuilder()
               .setMetadata(metadata)
-              .setProductId(productId)
+              .setItemId(itemIdStr)
+              .setItemName(itemName)
               .setPriceCents(priceCents)
               .setCountAdded(count)
               .build();
 
-        persist(event, productId, ITEM_EVENTS);
+        persist(event, itemName, ITEM_EVENTS);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void writeEntitlementGranted(@lombok.NonNull UUID orderId,
+                                        @lombok.NonNull String userId,
+                                        @lombok.NonNull List<String> accessKeys,
+                                        String triggerEventId) {
+        String orderIdStr = orderId.toString();
+
+
+
+        String[] signatureParams = Stream.concat(Stream.of(userId), accessKeys.stream())
+              .toArray(String[]::new);
+
+        MessageMetadata metadata = createMetadata(
+              orderIdStr,
+              triggerEventId,
+              signatureParams
+        );
+
+        EntitlementGrantedEvent event = EntitlementGrantedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .setUserId(userId)
+              .addAllAccessKeys(accessKeys)
+              .build();
+
+        persist(event, orderIdStr, SAGA_EVENTS);
     }
 }

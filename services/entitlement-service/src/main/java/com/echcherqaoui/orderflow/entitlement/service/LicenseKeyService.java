@@ -6,6 +6,7 @@ import com.echcherqaoui.orderflow.entitlement.exception.domain.DuplicateKeysExce
 import com.echcherqaoui.orderflow.entitlement.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.entitlement.model.LicenseKey;
 import com.echcherqaoui.orderflow.entitlement.repository.LicenseKeyRepository;
+import com.echcherqaoui.orderflow.entitlement.util.ItemIds;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -30,7 +32,7 @@ public class LicenseKeyService {
 
     @Transactional
     public BatchIngestionResponse ingestKeys(@lombok.NonNull BatchIngestionRequest request) {
-        String productId = request.productId();
+        String itemName = request.itemName();
         Long priceCents = request.priceCents();
         List<String> keys = request.keys();
 
@@ -50,11 +52,14 @@ public class LicenseKeyService {
         if (!existingKeys.isEmpty())
             throw new DuplicateKeysException(existingKeys); // Custom business exception
 
+        UUID itemId = ItemIds.fromName(itemName);
+
         // Map strings to LicenseKey entities including price
         List<LicenseKey> keysToSave = keys.stream()
               .map(code ->
                     new LicenseKey()
-                          .setProductId(productId)
+                          .setItemId(itemId)
+                          .setItemName(itemName)
                           .setKeyCode(code)
                           .setPriceCents(priceCents)
                           .setStatus(PENDING_PROVISION)
@@ -65,19 +70,19 @@ public class LicenseKeyService {
         int count = keys.size();
 
         // Write outbox event
-        outboxWriter.publishDigitalStockProvisionedEvent(productId, priceCents, count);
+        outboxWriter.publishDigitalStockProvisionedEvent(itemId, itemName, priceCents, count);
 
         return new BatchIngestionResponse(
               "License keys ingested successfully",
-              productId,
+              itemName,
               count
         );
     }
 
     @Transactional
-    public void completeProvisioning(String productId, int expectedQuantity) {
+    public void completeProvisioning(String itemName, int expectedQuantity) {
         int updatedCount = licenseKeyRepository.updateStatusForProduct(
-              productId,
+              itemName,
               PENDING_PROVISION,
               AVAILABLE
         );
@@ -85,7 +90,7 @@ public class LicenseKeyService {
         if (updatedCount != expectedQuantity)
             log.warn(
                   "Stock provision mismatch for product {}: expected {} keys, but updated {}.",
-                  productId,
+                  itemName,
                   expectedQuantity,
                   updatedCount
             );
@@ -93,21 +98,21 @@ public class LicenseKeyService {
             log.info(
                   "Successfully provisioned {} keys for product {}",
                   updatedCount,
-                  productId
+                  itemName
             );
     }
 
     @Transactional
-    public void rejectProvisioning(String productId, String reason) {
+    public void rejectProvisioning(String itemName, String reason) {
         int updatedCount = licenseKeyRepository.updateStatusForProduct(
-              productId,
+              itemName,
               PENDING_PROVISION,
               PROVISION_REJECTED
         );
 
         log.warn(
               "Provisioning rejected for product {} (reason: {}). Marked {} pending keys as rejected.",
-              productId,
+              itemName,
               reason,
               updatedCount
         );

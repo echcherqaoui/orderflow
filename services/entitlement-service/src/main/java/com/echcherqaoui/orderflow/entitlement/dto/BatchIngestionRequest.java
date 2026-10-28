@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
 
-public record BatchIngestionRequest(@NotBlank String productId,
+public record BatchIngestionRequest(@NotBlank String itemName,
                                     @NotNull Long priceCents,
                                     @NotEmpty List<@NotBlank String> keys) {
 }

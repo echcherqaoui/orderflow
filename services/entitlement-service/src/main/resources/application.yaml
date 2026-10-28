@@ -72,3 +72,4 @@ orderflow:
     topics:
       inventory:
         item-events: orderflow.inventory.item-events
+      entitlement-commands: orderflow.entitlement.commands
