@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.entitlement.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.DigitalStockProvisionedEvent;
+import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementFailedEvent;
 import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementGrantedEvent;
 import com.echcherqaoui.orderflow.entitlement.support.WithKafka;
 import com.echcherqaoui.orderflow.entitlement.support.WithPostgres;
@@ -55,6 +56,14 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
         config.put("schema.registry.url",
               "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081));
         config.put("specific.protobuf.value.type", EntitlementGrantedEvent.class);
+        return config;
+    }
+
+    private Map<String, Object> createEntitlementFailedDeserializerConfig() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("schema.registry.url",
+              "http://" + SCHEMA_REGISTRY.getHost() + ":" + SCHEMA_REGISTRY.getMappedPort(8081));
+        config.put("specific.protobuf.value.type", EntitlementFailedEvent.class);
         return config;
     }
 
@@ -144,6 +153,35 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
 
             assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
             assertThat(decoded.getUserId()).isEqualTo(userId);
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+        }
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("writeEntitlementFailed writes decodable Confluent wire payload to outbox")
+    void writeEntitlementFailed_persistsRealSerializedPayload() {
+        UUID orderId = UUID.randomUUID();
+        String userId = "user-789";
+        String reason = "KEY_POOL_EXHAUSTED";
+        String triggerEventId = UUID.randomUUID().toString();
+
+        outboxWriter.writeEntitlementFailed(orderId, userId, reason, triggerEventId);
+
+        OutboxEvent event = fetchSagaOutboxEvent(orderId.toString());
+        assertThat(event.getEventType()).isEqualTo("EntitlementFailedEvent");
+        assertThat(event.getPayload()).isNotEmpty();
+
+        try (KafkaProtobufDeserializer<EntitlementFailedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+            deserializer.configure(createEntitlementFailedDeserializerConfig(), false);
+
+            EntitlementFailedEvent decoded = deserializer.deserialize(TOPIC_CONTEXT, event.getPayload());
+
+            assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getUserId()).isEqualTo(userId);
+            assertThat(decoded.getReason()).isEqualTo(reason);
             assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
             assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
             assertThat(decoded.getMetadata().getSignature()).isNotBlank();

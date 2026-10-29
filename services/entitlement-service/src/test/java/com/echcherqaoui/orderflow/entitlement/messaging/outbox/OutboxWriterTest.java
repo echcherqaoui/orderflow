@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.entitlement.messaging.outbox;
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
 import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.DigitalStockProvisionedEvent;
+import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementFailedEvent;
 import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementGrantedEvent;
 import com.echcherqaoui.orderflow.entitlement.util.ItemIds;
 import com.echcherqaoui.orderflow.security.service.SignatureService;
@@ -203,6 +204,84 @@ class OutboxWriterTest {
             given(signatureService.sign(any(String[].class))).willThrow(signatureException);
 
             assertThatThrownBy(() -> outboxWriter.writeEntitlementGranted(orderId, userId, accessKeys, triggerEventId))
+                  .isSameAs(signatureException);
+
+            verifyNoInteractions(serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("writeEntitlementFailed()")
+    class WriteEntitlementFailed {
+
+        private static final String SAGA_EVENTS_TOPIC = "orderflow.entitlement.events";
+        private static final String SAGA_EVENTS_AGGREGATE_TYPE = "entitlement.events";
+
+        @Test
+        @DisplayName("successful invocation creates EntitlementFailedEvent, signs metadata, and saves outbox event")
+        void writeEntitlementFailed_success_buildsProtobufSignsAndSavesEvent() {
+            UUID orderId = UUID.randomUUID();
+            String userId = "user-789";
+            String reason = "KEY_POOL_EXHAUSTED";
+            String triggerEventId = UUID.randomUUID().toString();
+            String dummySignature = "hmac-signature-fail-123";
+
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(SAGA_EVENTS_TOPIC), any(Message.class))).willReturn(serializedPayload);
+
+            outboxWriter.writeEntitlementFailed(orderId, userId, reason, triggerEventId);
+
+            then(signatureService).should().sign(
+                  messageIdCaptor.capture(),
+                  eq(orderId.toString()),
+                  secondsCaptor.capture(),
+                  eq(userId),
+                  eq(reason)
+            );
+
+            String capturedMessageId = messageIdCaptor.getValue();
+            long capturedSeconds = Long.parseLong(secondsCaptor.getValue());
+
+            assertThat(capturedMessageId).isNotNull();
+            assertThat(UUID.fromString(capturedMessageId)).isNotNull();
+            assertThat(capturedSeconds).isGreaterThan(0L);
+
+            then(serializer).should().serialize(eq(SAGA_EVENTS_TOPIC), messageCaptor.capture());
+            Message capturedMessage = messageCaptor.getValue();
+            assertThat(capturedMessage).isInstanceOf(EntitlementFailedEvent.class);
+
+            EntitlementFailedEvent event = (EntitlementFailedEvent) capturedMessage;
+            assertThat(event.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(event.getUserId()).isEqualTo(userId);
+            assertThat(event.getReason()).isEqualTo(reason);
+            assertThat(event.getMetadata().getMessageId()).isEqualTo(capturedMessageId);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getId()).isNotNull();
+            assertThat(savedEvent.getAggregateType()).isEqualTo(SAGA_EVENTS_AGGREGATE_TYPE);
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("EntitlementFailedEvent");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+            assertThat(savedEvent.getCreatedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("signature service failure propagates exception and halts serialization and persistence")
+        void writeEntitlementFailed_signatureFails_propagatesException() {
+            UUID orderId = UUID.randomUUID();
+            String userId = "user-789";
+            String reason = "KEY_POOL_EXHAUSTED";
+            String triggerEventId = UUID.randomUUID().toString();
+
+            RuntimeException signatureException = new RuntimeException("HMAC signing error");
+            given(signatureService.sign(any(String[].class))).willThrow(signatureException);
+
+            assertThatThrownBy(() -> outboxWriter.writeEntitlementFailed(orderId, userId, reason, triggerEventId))
                   .isSameAs(signatureException);
 
             verifyNoInteractions(serializer, outboxEventRepository);
