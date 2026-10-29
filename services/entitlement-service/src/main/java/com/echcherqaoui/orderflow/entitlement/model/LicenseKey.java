@@ -16,6 +16,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import static com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus.PENDING_PROVISION;
 
@@ -31,7 +32,10 @@ public class LicenseKey {
     private Long id;
 
     @Column(nullable = false)
-    private String productId;
+    private UUID itemId;
+
+    @Column(nullable = false)
+    private String itemName;
 
     @Column(nullable = false, unique = true)
     private String keyCode;
@@ -43,7 +47,7 @@ public class LicenseKey {
     @Column( nullable = false)
     private Long priceCents;
 
-    private String orderId;
+    private UUID orderId;
 
     private String userId;
 

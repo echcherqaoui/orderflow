@@ -1,6 +1,8 @@
 package com.echcherqaoui.orderflow.entitlement.messaging.outbox;
 
 import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.DigitalStockProvisionedEvent;
+import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementFailedEvent;
+import com.echcherqaoui.orderflow.contracts.entitlement.events.v1.EntitlementGrantedEvent;
 import com.google.protobuf.Message;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import lombok.RequiredArgsConstructor;
@@ -30,5 +32,7 @@ public class SchemaRegistryWarmer {
     @EventListener(ApplicationReadyEvent.class)
     public void warmUp() {
         warm(DigitalStockProvisionedEvent.getDefaultInstance());
+        warm(EntitlementGrantedEvent.getDefaultInstance());
+        warm(EntitlementFailedEvent.getDefaultInstance());
     }
 }

@@ -95,6 +95,7 @@
 
                                 <!-- Entitlement Event Schemas (RecordNameStrategy) -->
                                 <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>src/main/proto/orderflow/entitlement/events/v1/entitlement_events.proto</orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
+                                <orderflow.entitlement.events.v1.EntitlementGrantedEvent>src/main/proto/orderflow/entitlement/events/v1/entitlement_events.proto</orderflow.entitlement.events.v1.EntitlementGrantedEvent>
                             </subjects>
 
                             <schemaTypes>
@@ -134,6 +135,7 @@
 
                                 <!-- Entitlement Events -->
                                 <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>PROTOBUF</orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
+                                <orderflow.entitlement.events.v1.EntitlementGrantedEvent>PROTOBUF</orderflow.entitlement.events.v1.EntitlementGrantedEvent>
 
                                 <!-- Order Events -->
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>PROTOBUF</orderflow.order.v1.OrderCancelledIntegrationEvent>
@@ -293,6 +295,13 @@
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
+
+                                <orderflow.entitlement.events.v1.EntitlementGrantedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.entitlement.events.v1.EntitlementGrantedEvent>
 
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>
                                     <reference>

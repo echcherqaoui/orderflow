@@ -44,24 +44,24 @@ class AdminLicenseControllerIT implements WithPostgres {
     @Test
     @DisplayName("valid request returns 201 Created with ingestion response")
     void ingestBatch_validRequest_returns201Created() throws Exception {
-        String productId = "prod-" + UUID.randomUUID();
+        String itemName = "prod-" + UUID.randomUUID();
         List<String> keys = List.of("KEY-01-" + UUID.randomUUID(), "KEY-02-" + UUID.randomUUID());
-        BatchIngestionRequest request = new BatchIngestionRequest(productId, 1999L, keys);
+        BatchIngestionRequest request = new BatchIngestionRequest(itemName, 1999L, keys);
 
         mockMvc.perform(
               post("/api/v1/admin/licenses/batch")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
         ).andExpect(status().isCreated())
-        .andExpect(jsonPath("$.productId").value(productId))
+        .andExpect(jsonPath("$.itemName").value(itemName))
         .andExpect(jsonPath("$.keysAdded").value(2));
 
         assertThat(licenseKeyRepository.count()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("blank productId fails DTO validation, returns 400 with validation errors")
-    void ingestBatch_blankProductId_returns400WithValidationErrors() throws Exception {
+    @DisplayName("blank itemName fails DTO validation, returns 400 with validation errors")
+    void ingestBatch_blankItemName_returns400WithValidationErrors() throws Exception {
         BatchIngestionRequest invalidRequest =
               new BatchIngestionRequest("", 1999L, List.of("KEY-01"));
 
@@ -77,11 +77,11 @@ class AdminLicenseControllerIT implements WithPostgres {
     @Test
     @DisplayName("duplicate keys within payload returns 409 Conflict")
     void ingestBatch_duplicateKeysInPayload_returns409() throws Exception {
-        String productId = "prod-" + UUID.randomUUID();
+        String itemName = "prod-" + UUID.randomUUID();
         String duplicateKey = "KEY-DUP-" + UUID.randomUUID();
         List<String> keys = List.of(duplicateKey, "KEY-UNIQUE-" + UUID.randomUUID(), duplicateKey);
 
-        BatchIngestionRequest request = new BatchIngestionRequest(productId, 1999L, keys);
+        BatchIngestionRequest request = new BatchIngestionRequest(itemName, 1999L, keys);
 
         mockMvc.perform(
               post("/api/v1/admin/licenses/batch")
@@ -94,12 +94,12 @@ class AdminLicenseControllerIT implements WithPostgres {
     @Test
     @DisplayName("existing keys in database returns 409 Conflict")
     void ingestBatch_existingKeysInDatabase_returns409() throws Exception {
-        String productId = "prod-" + UUID.randomUUID();
+        String itemName = "prod-" + UUID.randomUUID();
         String existingKey = "KEY-EXISTING-" + UUID.randomUUID();
         List<String> initialKeys = List.of(existingKey);
 
         // Seed first batch
-        BatchIngestionRequest initialRequest = new BatchIngestionRequest(productId, 1999L, initialKeys);
+        BatchIngestionRequest initialRequest = new BatchIngestionRequest(itemName, 1999L, initialKeys);
         mockMvc.perform(
               post("/api/v1/admin/licenses/batch")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -108,7 +108,7 @@ class AdminLicenseControllerIT implements WithPostgres {
 
         // Attempt second batch containing the existing key
         List<String> conflictingKeys = List.of(existingKey, "KEY-NEW-" + UUID.randomUUID());
-        BatchIngestionRequest conflictingRequest = new BatchIngestionRequest(productId, 1999L, conflictingKeys);
+        BatchIngestionRequest conflictingRequest = new BatchIngestionRequest(itemName, 1999L, conflictingKeys);
 
         mockMvc.perform(
               post("/api/v1/admin/licenses/batch")

@@ -43,14 +43,14 @@ class LicenseKeyServiceIT implements WithPostgres {
         @Test
         @DisplayName("successfully ingests new batch of keys and persists outbox event")
         void success_savesKeysAndReturnsResponse() {
-            String productId = "prod-" + UUID.randomUUID();
+            String itemName = "prod-" + UUID.randomUUID();
             List<String> keys = List.of("KEY-01-" + UUID.randomUUID(), "KEY-02-" + UUID.randomUUID());
-            BatchIngestionRequest request = new BatchIngestionRequest(productId, 1999L, keys);
+            BatchIngestionRequest request = new BatchIngestionRequest(itemName, 1999L, keys);
 
             BatchIngestionResponse response = licenseKeyService.ingestKeys(request);
 
             assertThat(response).isNotNull();
-            assertThat(response.productId()).isEqualTo(productId);
+            assertThat(response.itemName()).isEqualTo(itemName);
             assertThat(response.keysAdded()).isEqualTo(2);
             assertThat(licenseKeyRepository.count()).isEqualTo(2);
         }
@@ -58,18 +58,18 @@ class LicenseKeyServiceIT implements WithPostgres {
         @Test
         @DisplayName("existing keys in database throw DuplicateKeysException and persist nothing new")
         void duplicateKeysInDatabase_throwsException() {
-            String productId = "prod-" + UUID.randomUUID();
+            String itemName = "prod-" + UUID.randomUUID();
             String duplicateKey = "KEY-DUP-" + UUID.randomUUID();
 
             // Seed database with one existing key
-            BatchIngestionRequest initialRequest = new BatchIngestionRequest(productId, 1999L, List.of(duplicateKey));
+            BatchIngestionRequest initialRequest = new BatchIngestionRequest(itemName, 1999L, List.of(duplicateKey));
             licenseKeyService.ingestKeys(initialRequest);
 
             long countBefore = licenseKeyRepository.count();
 
             // Attempt to ingest batch containing the existing key
             List<String> newKeys = List.of(duplicateKey, "KEY-NEW-" + UUID.randomUUID());
-            BatchIngestionRequest requestWithDuplicates = new BatchIngestionRequest(productId, 1999L, newKeys);
+            BatchIngestionRequest requestWithDuplicates = new BatchIngestionRequest(itemName, 1999L, newKeys);
 
             assertThatThrownBy(() -> licenseKeyService.ingestKeys(requestWithDuplicates))
                   .isInstanceOf(DuplicateKeysException.class);
@@ -80,11 +80,11 @@ class LicenseKeyServiceIT implements WithPostgres {
         @Test
         @DisplayName("duplicate keys within the same payload throw DuplicateKeysException and persist nothing")
         void duplicateKeysInPayload_throwsException() {
-            String productId = "prod-" + UUID.randomUUID();
+            String itemName = "prod-" + UUID.randomUUID();
             String duplicatedKey = "KEY-REPEATED-" + UUID.randomUUID();
 
             List<String> keysWithInternalDuplicates = List.of(duplicatedKey, "KEY-UNIQUE-" + UUID.randomUUID(), duplicatedKey);
-            BatchIngestionRequest request = new BatchIngestionRequest(productId, 1999L, keysWithInternalDuplicates);
+            BatchIngestionRequest request = new BatchIngestionRequest(itemName, 1999L, keysWithInternalDuplicates);
 
             assertThatThrownBy(() -> licenseKeyService.ingestKeys(request))
                   .isInstanceOf(DuplicateKeysException.class);
@@ -100,11 +100,11 @@ class LicenseKeyServiceIT implements WithPostgres {
         @Test
         @DisplayName("transitions pending keys to available successfully")
         void success_transitionsToAvailable() {
-            String productId = "prod-" + UUID.randomUUID();
+            String itemName = "prod-" + UUID.randomUUID();
             List<String> keys = List.of("KEY-01-" + UUID.randomUUID(), "KEY-02-" + UUID.randomUUID());
-            licenseKeyService.ingestKeys(new BatchIngestionRequest(productId, 1999L, keys));
+            licenseKeyService.ingestKeys(new BatchIngestionRequest(itemName, 1999L, keys));
 
-            licenseKeyService.completeProvisioning(productId, 2);
+            licenseKeyService.completeProvisioning(itemName, 2);
 
             long availableCount = licenseKeyRepository.findAll().stream()
                   .filter(k -> k.getStatus() == AVAILABLE)
@@ -121,11 +121,11 @@ class LicenseKeyServiceIT implements WithPostgres {
         @Test
         @DisplayName("transitions pending keys to rejected successfully")
         void success_transitionsToRejected() {
-            String productId = "prod-" + UUID.randomUUID();
+            String itemName = "prod-" + UUID.randomUUID();
             List<String> keys = List.of("KEY-01-" + UUID.randomUUID());
-            licenseKeyService.ingestKeys(new BatchIngestionRequest(productId, 1999L, keys));
+            licenseKeyService.ingestKeys(new BatchIngestionRequest(itemName, 1999L, keys));
 
-            licenseKeyService.rejectProvisioning(productId, "Payment failed");
+            licenseKeyService.rejectProvisioning(itemName, "Payment failed");
 
             long rejectedCount = licenseKeyRepository.findAll().stream()
                   .filter(k -> k.getStatus() == PROVISION_REJECTED)

@@ -52,7 +52,7 @@ class AdminLicenseControllerTest {
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private final String validProductId = "prod-123";
+    private final String validItemName = "prod-123";
     private final Long validPriceCents = 1999L;
     private final List<String> validKeys = List.of("KEY-01", "KEY-02");
 
@@ -72,8 +72,8 @@ class AdminLicenseControllerTest {
     class IngestBatch {
         private static Stream<Arguments> invalidRequestProvider() {
             return Stream.of(
-                  Arguments.of("blank productId", new BatchIngestionRequest("", 1999L, List.of("KEY-01"))),
-                  Arguments.of("null productId", new BatchIngestionRequest(null, 1999L, List.of("KEY-01"))),
+                  Arguments.of("blank itemName", new BatchIngestionRequest("", 1999L, List.of("KEY-01"))),
+                  Arguments.of("null itemName", new BatchIngestionRequest(null, 1999L, List.of("KEY-01"))),
                   Arguments.of("null priceCents", new BatchIngestionRequest("prod-123", null, List.of("KEY-01"))),
                   Arguments.of("empty keys list", new BatchIngestionRequest("prod-123", 1999L, List.of())),
                   Arguments.of("null keys list", new BatchIngestionRequest("prod-123", 1999L, null)),
@@ -84,8 +84,8 @@ class AdminLicenseControllerTest {
         @Test
         @DisplayName("direct method invocation returns 201 Created with BatchIngestionResponse body from service")
         void ingestBatch_directInvocation_returns201CreatedWithResponse() {
-            BatchIngestionRequest request = new BatchIngestionRequest(validProductId, validPriceCents, validKeys);
-            BatchIngestionResponse expectedResponse = new BatchIngestionResponse("License keys ingested successfully", validProductId, 2);
+            BatchIngestionRequest request = new BatchIngestionRequest(validItemName, validPriceCents, validKeys);
+            BatchIngestionResponse expectedResponse = new BatchIngestionResponse("License keys ingested successfully", validItemName, 2);
             given(ingestionService.ingestKeys(any(BatchIngestionRequest.class))).willReturn(expectedResponse);
 
             ResponseEntity<BatchIngestionResponse> response = adminLicenseController.ingestBatch(request);
@@ -100,20 +100,20 @@ class AdminLicenseControllerTest {
         @Test
         @DisplayName("valid HTTP payload passes validation, returning 201 Created and response body")
         void ingestBatch_validPayload_returns201CreatedAndBody() throws Exception {
-            BatchIngestionRequest request = new BatchIngestionRequest(validProductId, validPriceCents, validKeys);
-            BatchIngestionResponse expectedResponse = new BatchIngestionResponse("License keys ingested successfully", validProductId, 2);
+            BatchIngestionRequest request = new BatchIngestionRequest(validItemName, validPriceCents, validKeys);
+            BatchIngestionResponse expectedResponse = new BatchIngestionResponse("License keys ingested successfully", validItemName, 2);
             given(ingestionService.ingestKeys(any(BatchIngestionRequest.class))).willReturn(expectedResponse);
 
             mockMvc.perform(post("/api/v1/admin/licenses/batch")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                   .andExpect(status().isCreated())
-                  .andExpect(jsonPath("$.productId").value(validProductId))
+                  .andExpect(jsonPath("$.itemName").value(validItemName))
                   .andExpect(jsonPath("$.keysAdded").value(2));
 
             then(ingestionService).should().ingestKeys(requestCaptor.capture());
             BatchIngestionRequest capturedRequest = requestCaptor.getValue();
-            assertThat(capturedRequest.productId()).isEqualTo(validProductId);
+            assertThat(capturedRequest.itemName()).isEqualTo(validItemName);
             assertThat(capturedRequest.priceCents()).isEqualTo(validPriceCents);
             assertThat(capturedRequest.keys()).isEqualTo(validKeys);
         }
@@ -134,7 +134,7 @@ class AdminLicenseControllerTest {
         @Test
         @DisplayName("service failure propagates exception during execution")
         void ingestBatch_serviceFails_propagatesException() {
-            BatchIngestionRequest request = new BatchIngestionRequest(validProductId, validPriceCents, validKeys);
+            BatchIngestionRequest request = new BatchIngestionRequest(validItemName, validPriceCents, validKeys);
             RuntimeException serviceException = new RuntimeException("Duplicate keys detected");
             given(ingestionService.ingestKeys(any(BatchIngestionRequest.class))).willThrow(serviceException);
 

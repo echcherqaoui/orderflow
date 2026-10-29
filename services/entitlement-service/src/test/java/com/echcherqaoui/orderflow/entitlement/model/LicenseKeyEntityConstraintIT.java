@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.entitlement.model;
 
 import com.echcherqaoui.orderflow.entitlement.repository.LicenseKeyRepository;
 import com.echcherqaoui.orderflow.entitlement.support.WithPostgres;
+import com.echcherqaoui.orderflow.entitlement.util.ItemIds;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import org.junit.jupiter.api.DisplayName;
@@ -37,8 +38,10 @@ class LicenseKeyEntityConstraintIT implements WithPostgres {
     private LicenseKeyRepository licenseKeyRepository;
 
     private LicenseKey newLicenseKey(String keyCode) {
+        String itemName = "prod-" + UUID.randomUUID();
         return new LicenseKey()
-              .setProductId("prod-" + UUID.randomUUID())
+              .setItemId(ItemIds.fromName(itemName))
+              .setItemName(itemName)
               .setKeyCode(keyCode)
               .setPriceCents(1999L);
     }
@@ -48,9 +51,10 @@ class LicenseKeyEntityConstraintIT implements WithPostgres {
               Arguments.of(
                     "price_cents < 0 via native INSERT",
                     (Consumer<EntityManager>) em -> em.createNativeQuery("""
-                        INSERT INTO license_keys (product_id, key_code, status, price_cents, version, created_at, updated_at)
-                        VALUES (:productId, :keyCode, 'AVAILABLE', -1, 0, now(), now())
-                    """).setParameter("productId", "prod-" + UUID.randomUUID())
+                        INSERT INTO license_keys (item_id, item_name, key_code, status, price_cents, version, created_at, updated_at)
+                        VALUES (:itemId, :itemName, :keyCode, 'AVAILABLE', -1, 0, now(), now())
+                    """).setParameter("itemId", UUID.randomUUID())
+                          .setParameter("itemName", "sample-item")
                           .setParameter("keyCode", "KEY-BAD-PRICE-" + UUID.randomUUID())
                           .executeUpdate(),
                     "chk_license_keys_price_non_negative"
@@ -58,9 +62,10 @@ class LicenseKeyEntityConstraintIT implements WithPostgres {
               Arguments.of(
                     "invalid status via native INSERT",
                     (Consumer<EntityManager>) em -> em.createNativeQuery("""
-                        INSERT INTO license_keys (product_id, key_code, status, price_cents, version, created_at, updated_at)
-                        VALUES (:productId, :keyCode, 'INVALID_STATUS', 1000, 0, now(), now())
-                    """).setParameter("productId", "prod-" + UUID.randomUUID())
+                        INSERT INTO license_keys (item_id, item_name, key_code, status, price_cents, version, created_at, updated_at)
+                        VALUES (:itemId, :itemName, :keyCode, 'INVALID_STATUS', 1000, 0, now(), now())
+                    """).setParameter("itemId", UUID.randomUUID())
+                          .setParameter("itemName", "sample-item")
                           .setParameter("keyCode", "KEY-BAD-STATUS-" + UUID.randomUUID())
                           .executeUpdate(),
                     "chk_license_keys_status"
@@ -105,6 +110,31 @@ class LicenseKeyEntityConstraintIT implements WithPostgres {
               .isInstanceOfAny(PersistenceException.class, DataIntegrityViolationException.class)
               .satisfies(e -> assertThat(NestedExceptionUtils.getRootCause(e))
                     .hasMessageContaining("uq_license_keys_key_code")
+              );
+    }
+
+    @Test
+    @DisplayName("assigning multiple keys for the same item to the same order triggers unique constraint violation")
+    void duplicateOrderAndItem_rejectedByUniqueConstraint() {
+        UUID orderId = UUID.randomUUID();
+        UUID itemId = ItemIds.fromName("test-item");
+
+        LicenseKey key1 = newLicenseKey("KEY-1-" + UUID.randomUUID())
+              .setItemId(itemId)
+              .setOrderId(orderId)
+              .setStatus(LicenseKeyStatus.ASSIGNED);
+
+        LicenseKey key2 = newLicenseKey("KEY-2-" + UUID.randomUUID())
+              .setItemId(itemId)
+              .setOrderId(orderId)
+              .setStatus(LicenseKeyStatus.ASSIGNED);
+
+        licenseKeyRepository.saveAndFlush(key1);
+
+        assertThatThrownBy(() -> licenseKeyRepository.saveAndFlush(key2))
+              .isInstanceOfAny(PersistenceException.class, DataIntegrityViolationException.class)
+              .satisfies(e -> assertThat(NestedExceptionUtils.getRootCause(e))
+                    .hasMessageContaining("uq_license_key_order_item")
               );
     }
 }

@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.entitlement.repository;
 import com.echcherqaoui.orderflow.entitlement.model.LicenseKey;
 import com.echcherqaoui.orderflow.entitlement.model.LicenseKeyStatus;
 import com.echcherqaoui.orderflow.entitlement.support.WithPostgres;
+import com.echcherqaoui.orderflow.entitlement.util.ItemIds;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,17 +31,18 @@ class LicenseKeyRepositoryIT implements WithPostgres {
     @Autowired
     private EntityManager entityManager;
 
-    private String productId;
+    private String itemName;
 
     @BeforeEach
     void setUp() {
         licenseKeyRepository.deleteAllInBatch();
-        productId = "prod-" + UUID.randomUUID();
+        itemName = "prod-" + UUID.randomUUID();
     }
 
     private LicenseKey newLicenseKey(String keyCode) {
         return new LicenseKey()
-              .setProductId(productId)
+              .setItemId(ItemIds.fromName(itemName))
+              .setItemName(itemName)
               .setKeyCode(keyCode)
               .setStatus(AVAILABLE)
               .setPriceCents(1999L);
@@ -100,19 +102,23 @@ class LicenseKeyRepositoryIT implements WithPostgres {
             String otherProductKey = "KEY-OTHER-1-" + UUID.randomUUID();
 
             LicenseKey pk1 = new LicenseKey()
-                  .setProductId(productId)
+                  .setItemId(ItemIds.fromName(itemName))
+                  .setItemName(itemName)
                   .setKeyCode(key1)
                   .setStatus(LicenseKeyStatus.PENDING_PROVISION)
                   .setPriceCents(1999L);
 
             LicenseKey pk2 = new LicenseKey()
-                  .setProductId(productId)
+                  .setItemId(ItemIds.fromName(itemName))
+                  .setItemName(itemName)
                   .setKeyCode(key2)
                   .setStatus(LicenseKeyStatus.PENDING_PROVISION)
                   .setPriceCents(1999L);
 
+            String otherItemName = "other-prod";
             LicenseKey opk = new LicenseKey()
-                  .setProductId("other-prod")
+                  .setItemId(ItemIds.fromName(otherItemName))
+                  .setItemName(otherItemName)
                   .setKeyCode(otherProductKey)
                   .setStatus(LicenseKeyStatus.PENDING_PROVISION)
                   .setPriceCents(1999L);
@@ -121,7 +127,7 @@ class LicenseKeyRepositoryIT implements WithPostgres {
             entityManager.clear();
 
             int updatedCount = licenseKeyRepository.updateStatusForProduct(
-                  productId,
+                  itemName,
                   LicenseKeyStatus.PENDING_PROVISION,
                   AVAILABLE
             );
@@ -139,12 +145,51 @@ class LicenseKeyRepositoryIT implements WithPostgres {
         @DisplayName("Returns zero when no keys match product and old status")
         void updateStatusForProduct_noMatch_returnsZero() {
             int updatedCount = licenseKeyRepository.updateStatusForProduct(
-                  productId,
+                  itemName,
                   LicenseKeyStatus.PENDING_PROVISION,
                   AVAILABLE
             );
 
             assertThat(updatedCount).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("findFirstByItemIdAndStatusOrderByIdAsc")
+    class FindFirstByItemIdAndStatusTests {
+
+        @Test
+        @DisplayName("Returns the first available key ordered by ID ascending")
+        void findFirst_returnsOldestAvailableKey() {
+            UUID itemId = ItemIds.fromName(itemName);
+
+            LicenseKey key1 = newLicenseKey("KEY-FIRST-" + UUID.randomUUID()).setItemId(itemId);
+            LicenseKey key2 = newLicenseKey("KEY-SECOND-" + UUID.randomUUID()).setItemId(itemId);
+
+            licenseKeyRepository.saveAllAndFlush(List.of(key1, key2));
+            entityManager.clear();
+
+            var found = licenseKeyRepository.findFirstByItemIdAndStatusOrderByIdAsc(itemId, AVAILABLE);
+
+            assertThat(found).isPresent();
+            assertThat(found.get().getKeyCode()).isEqualTo(key1.getKeyCode());
+        }
+
+        @Test
+        @DisplayName("Returns empty when no available keys exist for item")
+        void findFirst_noAvailableKeys_returnsEmpty() {
+            UUID itemId = ItemIds.fromName(itemName);
+
+            LicenseKey key1 = newLicenseKey("KEY-ASSIGNED-" + UUID.randomUUID())
+                  .setItemId(itemId)
+                  .setStatus(LicenseKeyStatus.ASSIGNED);
+
+            licenseKeyRepository.saveAndFlush(key1);
+            entityManager.clear();
+
+            var found = licenseKeyRepository.findFirstByItemIdAndStatusOrderByIdAsc(itemId, AVAILABLE);
+
+            assertThat(found).isEmpty();
         }
     }
 }

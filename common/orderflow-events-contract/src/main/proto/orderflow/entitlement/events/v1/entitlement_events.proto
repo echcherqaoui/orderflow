@@ -9,7 +9,15 @@ import "orderflow/common/v1/metadata.proto";
 
 message DigitalStockProvisionedEvent {
   orderflow.common.v1.MessageMetadata metadata = 1;
-  string product_id = 2;
+  string item_id = 2;
   int64 price_cents = 3;
   int32 count_added = 4;
+  string item_name = 5;
+}
+
+message EntitlementGrantedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string user_id = 3;
+  repeated string access_keys = 4;
 }
