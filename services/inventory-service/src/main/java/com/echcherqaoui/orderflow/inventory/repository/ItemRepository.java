@@ -42,6 +42,6 @@ public interface ItemRepository extends JpaRepository<Item, UUID>, ItemRepositor
     void incrementStockBatch(@Param("itemIds") Set<UUID> itemIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("FROM Item i WHERE i.name = :name")
-    Optional<Item> findByNameForUpdate(@Param("name") String name);
+    @Query("FROM Item i WHERE i.id = :id")
+    Optional<Item> findByIdForUpdate(@Param("id") UUID id);
 }
