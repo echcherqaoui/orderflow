@@ -40,6 +40,7 @@ class ItemEntityConstraintIT  implements WithPostgres {
 
     private Item newItem(int total, int remaining) {
         return new Item()
+              .setId(UUID.randomUUID())
               .setName("test-item-" + UUID.randomUUID())
               .setPriceCents(1000L)
               .setTotalEarlyAccessUnits(total)

@@ -177,7 +177,7 @@ public class PaymentPersistenceService {
 
     @Transactional
     public PrepareRefundResult prepareRefund(UUID orderId) {
-        // 1. Atomic state transition SUCCESS -> REFUND_PENDING
+        // Atomic state transition SUCCESS -> REFUND_PENDING
         int claimed = paymentRepository.markRefundPending(orderId);
         if (claimed > 0)
             return PrepareRefundResult.INITIAL_CLAIM;

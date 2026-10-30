@@ -49,6 +49,7 @@ class ItemRepositoryCustomImplIT implements WithPostgres {
     private Item newItem(int total, int remaining) {
         return new Item()
               .setName("test-item-" + UUID.randomUUID())
+              .setId(UUID.randomUUID())
               .setPriceCents(1000L)
               .setTotalEarlyAccessUnits(total)
               .setRemainingUnits(remaining);

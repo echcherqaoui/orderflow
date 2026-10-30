@@ -81,6 +81,7 @@ class ReservationServiceIT implements WithPostgres {
 
     private Item newItem(int total, int remaining, long priceCents) {
         return new Item()
+              .setId(UUID.randomUUID())
               .setName("test-item-" + UUID.randomUUID())
               .setPriceCents(priceCents)
               .setTotalEarlyAccessUnits(total)

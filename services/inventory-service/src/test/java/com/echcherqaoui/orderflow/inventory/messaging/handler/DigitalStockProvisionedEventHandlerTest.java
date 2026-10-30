@@ -36,7 +36,8 @@ class DigitalStockProvisionedEventHandlerTest {
     @InjectMocks
     private DigitalStockProvisionedEventHandler eventHandler;
 
-    private final String productId = "prod-123";
+    private final String itemName = "prod-123";
+    private final UUID itemId = UUID.randomUUID();
     private final long priceCents = 1500L;
     private final int countAdded = 10;
     private final String messageId = UUID.randomUUID().toString();
@@ -57,7 +58,8 @@ class DigitalStockProvisionedEventHandlerTest {
 
         event = DigitalStockProvisionedEvent.newBuilder()
               .setMetadata(metadata)
-              .setProductId(productId)
+              .setItemId(itemId.toString())
+              .setItemName(itemName)
               .setPriceCents(priceCents)
               .setCountAdded(countAdded)
               .build();
@@ -133,7 +135,8 @@ class DigitalStockProvisionedEventHandlerTest {
 
             then(itemService).should().provisionStock(
                   UUID.fromString(messageId),
-                  productId,
+                  itemId,
+                  itemName,
                   priceCents,
                   countAdded
             );
@@ -146,7 +149,8 @@ class DigitalStockProvisionedEventHandlerTest {
                   .when(itemService)
                   .provisionStock(
                         UUID.fromString(messageId),
-                        productId,
+                        itemId,
+                        itemName,
                         priceCents,
                         countAdded
                   );
@@ -155,7 +159,8 @@ class DigitalStockProvisionedEventHandlerTest {
 
             then(itemService).should().provisionStock(
                   UUID.fromString(messageId),
-                  productId,
+                  itemId,
+                  itemName,
                   priceCents,
                   countAdded
             );

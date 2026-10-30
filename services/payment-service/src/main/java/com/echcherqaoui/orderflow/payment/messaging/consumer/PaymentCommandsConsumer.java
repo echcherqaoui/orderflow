@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Handles ChargePaymentCommand produced by Order Service into orders.outbox
+ * Handles PaymentCommands produced by Order Service into orders.outbox
  */
 @Component
 @Slf4j

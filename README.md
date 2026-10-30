@@ -69,9 +69,7 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 | **Inventory Service** | `8082` | `9082` | `inventory_db` | Item catalog management, pessimistic stock reservation engine, reservation extension & release lifecycle, background stock sweeper, gRPC endpoints |
 | **Order Service** | `8084` | `----` | `order_db` | Order orchestration, end-to-end Saga state machine, gRPC inventory calls, Protobuf event handlers with HMAC signature verification, transactional outbox writer, SSE real-time client state streaming |
 | **Payment Service** | `8086` | `----` | `payment_db` | Payment intent creation, async payment charges, third-party gateway abstraction, HMAC signature generation in `MessageMetadata`, atomic outbox event publishing |
-| **Entitlement Service** | `----`    | `----`    | `entitlement_db` |  |
-
----
+| **Entitlement Service** | `8088` | `----` | `entitlement_db` | License-key ingestion, atomic key allocation (`FOR UPDATE SKIP LOCKED`), canonical `itemId` minting, transactional outbox publishing |---
 
 ## 🔄 Checkout Saga Architecture & Lifecycle
 
@@ -116,6 +114,12 @@ Acts as the single source of truth for payment lifecycle processing:
 * **Payload Integrity & Verification:** Validates command signatures and webhook payloads using HMAC verification (`SignatureService`).
 * **Outbox & Resilient Messaging:** Emits `PaymentInitiatedEvent`, payment outcomes, and refund events atomically using the Transactional Outbox pattern, supported by dedicated Kafka retry topics and dead-letter queues (`KafkaRetryConfig`).
 
+### Entitlement Service
+Owns license keys and item identity:
+* **Canonical item ID:** `itemId` is a UUID derived from the normalized item name. Inventory receives it via `DigitalStockProvisionedEvent` and orders carry it back.
+* **Atomic Key Allocation:** One key per item per order, claimed with `SKIP LOCKED` in a single transaction. All-or-nothing, and idempotent through a unique index on `(order_id, item_id)`.
+* **Failure Handling:** Pool exhaustion publishes `EntitlementFailedEvent` (separate transaction). Invariant violations (empty or duplicate items) go to the DLT.
+* **Outbox & Signing:** HMAC-signed events written through the transactional outbox.
 ---
 
 ## 🧩 Shared Common Modules

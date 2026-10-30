@@ -46,7 +46,8 @@ public class DigitalStockProvisionedEventHandler implements EventHandler<Digital
         try {
             itemService.provisionStock(
                   UUID.fromString(messageId),
-                  event.getProductId(),
+                  UUID.fromString(event.getItemId()),
+                  event.getItemName(),
                   event.getPriceCents(),
                   event.getCountAdded()
             );

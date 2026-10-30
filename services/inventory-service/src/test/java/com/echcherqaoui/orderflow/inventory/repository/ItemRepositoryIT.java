@@ -42,6 +42,7 @@ class ItemRepositoryIT  implements WithPostgres {
 
     private Item newItem(String name, long priceCents, int total, int remaining) {
         return new Item()
+              .setId(UUID.randomUUID())
               .setName(name)
               .setPriceCents(priceCents)
               .setTotalEarlyAccessUnits(total)

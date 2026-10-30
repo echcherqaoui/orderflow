@@ -1,14 +1,10 @@
 package com.echcherqaoui.orderflow.inventory.service;
 
-import com.echcherqaoui.orderflow.inventory.dto.request.CreateItemRequest;
-import com.echcherqaoui.orderflow.inventory.dto.response.ItemResponse;
-import com.echcherqaoui.orderflow.inventory.exception.domain.ItemAlreadyExistsException;
 import com.echcherqaoui.orderflow.inventory.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.inventory.model.Item;
 import com.echcherqaoui.orderflow.inventory.model.ProcessedEvent;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ProcessedEventRepository;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
@@ -29,10 +25,11 @@ public class ItemService {
     private final ProcessedEventRepository processedEventRepository;
     private final OutboxWriter outboxWriter;
 
-    private Item newItem(String itemName, Long priceCents) {
+    private Item newItem(UUID id, String itemName, Long priceCents) {
         log.info("Item '{}' not found. Creating new item record.", itemName);
 
         return new Item()
+              .setId(id)
               .setName(itemName)
               .setPriceCents(priceCents)
               .setTotalEarlyAccessUnits(0)
@@ -40,32 +37,18 @@ public class ItemService {
     }
 
     @Transactional
-    public ItemResponse createItem(@Valid @NonNull CreateItemRequest request) {
-
-        if (itemRepository.existsByName(request.name()))
-            throw new ItemAlreadyExistsException(request.name());
-
-        Item item = new Item()
-                .setName(request.name())
-                .setPriceCents(request.priceCents())
-                .setTotalEarlyAccessUnits(request.totalEarlyAccessUnits())
-                .setRemainingUnits(request.totalEarlyAccessUnits());
-
-        return ItemResponse.fromEntity(itemRepository.save(item));
-    }
-
-    @Transactional
     public void provisionStock(@NonNull UUID messageId,
-                              @NonNull String itemName,
-                              @NonNull Long priceCents,
-                              int quantity) {
+                               @NonNull UUID itemId,
+                               @NonNull String itemName,
+                               @NonNull Long priceCents,
+                               int quantity) {
         if (quantity <= 0)
             throw new IllegalArgumentException("quantity must be positive: " + quantity);
 
         processedEventRepository.saveAndFlush(new ProcessedEvent(messageId)); // throws on duplicate
 
         // Lock the row if it exists to prevent concurrent update race conditions
-        Optional<Item> existing = itemRepository.findByNameForUpdate(itemName);
+        Optional<Item> existing = itemRepository.findByIdForUpdate(itemId);
 
         if (existing.isPresent() && !existing.get().hasPrice(priceCents)) {
             log.error("Stock provision rejected for item '{}': price mismatch. MessageId: {}, Existing price: {} cents, Incoming price: {} cents",
@@ -84,7 +67,7 @@ public class ItemService {
             return;
         }
 
-        Item item = existing.orElseGet(() -> newItem(itemName, priceCents));
+        Item item = existing.orElseGet(() -> newItem(itemId, itemName, priceCents));
         item.addStock(quantity);
         itemRepository.save(item);
 
