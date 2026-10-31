@@ -12,3 +12,8 @@ message OrderCancelledIntegrationEvent {
   string order_id = 2;
   string reason = 3;
 }
+
+message OrderCompletedIntegrationEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+}
