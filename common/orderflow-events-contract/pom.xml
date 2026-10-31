@@ -74,6 +74,7 @@
 
                                 <!-- Order Event Schemas (RecordNameStrategy) -->
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>src/main/proto/orderflow/order/v1/order_events.proto</orderflow.order.v1.OrderCancelledIntegrationEvent>
+                                <orderflow.order.v1.OrderCompletedIntegrationEvent>src/main/proto/orderflow/order/v1/order_events.proto</orderflow.order.v1.OrderCompletedIntegrationEvent>
 
                                 <!-- Payment Event Schemas (RecordNameStrategy) -->
                                 <orderflow.payment.events.v1.PaymentInitiatedEvent>src/main/proto/orderflow/payment/events/v1/payment_events.proto</orderflow.payment.events.v1.PaymentInitiatedEvent>
@@ -96,6 +97,7 @@
                                 <!-- Entitlement Event Schemas (RecordNameStrategy) -->
                                 <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>src/main/proto/orderflow/entitlement/events/v1/entitlement_events.proto</orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
                                 <orderflow.entitlement.events.v1.EntitlementGrantedEvent>src/main/proto/orderflow/entitlement/events/v1/entitlement_events.proto</orderflow.entitlement.events.v1.EntitlementGrantedEvent>
+                                <orderflow.entitlement.events.v1.EntitlementFailedEvent>src/main/proto/orderflow/entitlement/events/v1/entitlement_events.proto</orderflow.entitlement.events.v1.EntitlementFailedEvent>
                             </subjects>
 
                             <schemaTypes>
@@ -136,9 +138,11 @@
                                 <!-- Entitlement Events -->
                                 <orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>PROTOBUF</orderflow.entitlement.events.v1.DigitalStockProvisionedEvent>
                                 <orderflow.entitlement.events.v1.EntitlementGrantedEvent>PROTOBUF</orderflow.entitlement.events.v1.EntitlementGrantedEvent>
+                                <orderflow.entitlement.events.v1.EntitlementFailedEvent>PROTOBUF</orderflow.entitlement.events.v1.EntitlementFailedEvent>
 
                                 <!-- Order Events -->
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>PROTOBUF</orderflow.order.v1.OrderCancelledIntegrationEvent>
+                                <orderflow.order.v1.OrderCompletedIntegrationEvent>PROTOBUF</orderflow.order.v1.OrderCompletedIntegrationEvent>
                             </schemaTypes>
 
                             <references>
@@ -303,12 +307,26 @@
                                     </reference>
                                 </orderflow.entitlement.events.v1.EntitlementGrantedEvent>
 
+                                <orderflow.entitlement.events.v1.EntitlementFailedEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.entitlement.events.v1.EntitlementFailedEvent>
+
                                 <orderflow.order.v1.OrderCancelledIntegrationEvent>
                                     <reference>
                                         <name>orderflow/common/v1/metadata.proto</name>
                                         <subject>orderflow.common.v1.metadata</subject>
                                     </reference>
                                 </orderflow.order.v1.OrderCancelledIntegrationEvent>
+
+                                <orderflow.order.v1.OrderCompletedIntegrationEvent>
+                                    <reference>
+                                        <name>orderflow/common/v1/metadata.proto</name>
+                                        <subject>orderflow.common.v1.metadata</subject>
+                                    </reference>
+                                </orderflow.order.v1.OrderCompletedIntegrationEvent>
                             </references>
                         </configuration>
                     </plugin>

@@ -21,3 +21,10 @@ message EntitlementGrantedEvent {
   string user_id = 3;
   repeated string access_keys = 4;
 }
+
+message EntitlementFailedEvent {
+  orderflow.common.v1.MessageMetadata metadata = 1;
+  string order_id = 2;
+  string user_id = 3;
+  string reason = 4;
+}

@@ -1,11 +1,14 @@
 package com.echcherqaoui.orderflow.order.messaging.outbox;
 
+import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitlementCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
+import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
 import com.google.protobuf.Message;
 import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +25,7 @@ public class SchemaRegistryWarmer {
     private static final String PAYMENT_COMMANDS_TOPIC = "orderflow.payment.commands";
     private static final String INVENTORY_COMMANDS_TOPIC = "orderflow.inventory.commands";
     private static final String ORDER_EVENTS_TOPIC = "orderflow.order.events";
+    private static final String ENTITLEMENT_EVENTS_TOPIC = "orderflow.entitlement.events";
 
     private final KafkaProtobufSerializer<Message> serializer;
 
@@ -38,11 +42,15 @@ public class SchemaRegistryWarmer {
     public void warmUp() {
         warm(PAYMENT_COMMANDS_TOPIC, ChargePaymentCommand.getDefaultInstance());
         warm(PAYMENT_COMMANDS_TOPIC, CancelPaymentCommand.getDefaultInstance());
+        warm(PAYMENT_COMMANDS_TOPIC, RefundPaymentCommand.getDefaultInstance());
 
         warm(INVENTORY_COMMANDS_TOPIC, ReleaseInventoryCommand.getDefaultInstance());
         warm(INVENTORY_COMMANDS_TOPIC, ExtendReservationCommand.getDefaultInstance());
         warm(INVENTORY_COMMANDS_TOPIC, ConfirmReservationCommand.getDefaultInstance());
 
         warm(ORDER_EVENTS_TOPIC, OrderCancelledIntegrationEvent.getDefaultInstance());
+        warm(ORDER_EVENTS_TOPIC, OrderCompletedIntegrationEvent.getDefaultInstance());
+
+        warm(ENTITLEMENT_EVENTS_TOPIC, GrantEntitlementCommand.getDefaultInstance());
     }
 }

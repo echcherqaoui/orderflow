@@ -80,3 +80,4 @@ orderflow:
     topics:
       payment-events: orderflow.payment.events
       inventory-events: orderflow.inventory.events
+      entitlement-events: orderflow.entitlement.events

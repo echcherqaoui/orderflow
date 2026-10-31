@@ -611,4 +611,39 @@ class OrderSagaServiceTest {
             verifyOrderNotFound(id -> orderSagaService.handleInventoryConfirmed(id, cartId, triggerEventId));
         }
     }
+
+    @Nested
+    @DisplayName("handleEntitlementGranted()")
+    class HandleEntitlementGranted {
+
+        @Test
+        @DisplayName("valid step GRANTING_ENTITLEMENT: sets status COMPLETED, step COMPLETED, logs transition, and publishes outbox and application events")
+        void handleEntitlementGranted_validStep_completesOrderAndPublishesEvents() {
+            Order existingOrder = createOrder(SagaStep.GRANTING_ENTITLEMENT, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            orderSagaService.handleEntitlementGranted(orderId, triggerEventId);
+
+            assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.COMPLETED);
+
+            then(orderRepository).should().save(existingOrder);
+            verifyTransition(SagaStep.GRANTING_ENTITLEMENT, SagaStepStatus.COMPLETED, SagaStep.COMPLETED, SagaStepStatus.COMPLETED, "EntitlementGrantedEvent", triggerEventId);
+            then(outboxWriter).should().publishOrderCompletedEvent(orderId, triggerEventId);
+            then(eventPublisher).should().publishEvent(any(com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent.class));
+        }
+
+        @Test
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handleEntitlementGranted_staleStep_ignoresEvent() {
+            verifyStaleEventIgnored(createOrder(SagaStep.COMPLETED, OrderStatus.COMPLETED),
+                  () -> orderSagaService.handleEntitlementGranted(orderId, triggerEventId));
+        }
+
+        @Test
+        @DisplayName("missing order throws ResourceNotFoundException and halts execution")
+        void handleEntitlementGranted_notFound_throwsResourceNotFoundException() {
+            verifyOrderNotFound(id -> orderSagaService.handleEntitlementGranted(id, triggerEventId));
+        }
+    }
 }

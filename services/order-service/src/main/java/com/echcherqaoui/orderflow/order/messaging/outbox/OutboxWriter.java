@@ -8,6 +8,7 @@ import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReserva
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
@@ -251,5 +252,20 @@ public class OutboxWriter {
               .build();
 
         persist(command, orderIdStr, ENTITLEMENT_COMMANDS_AGGREGATE);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishOrderCompletedEvent(@lombok.NonNull UUID orderId,
+                                           @lombok.NonNull String triggerEventId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId);
+
+        OrderCompletedIntegrationEvent event = OrderCompletedIntegrationEvent.newBuilder()
+              .setMetadata(metadata)
+              .setOrderId(orderIdStr)
+              .build();
+
+        persist(event, orderIdStr, ORDER_EVENTS_AGGREGATE);
     }
 }

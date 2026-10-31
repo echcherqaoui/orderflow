@@ -634,4 +634,50 @@ class OrderSagaServiceIT implements WithPostgres {
             assertStaleEventIgnored(order, () -> orderSagaService.handleInventoryConfirmed(order.getId(), order.getCartId(), UUID.randomUUID().toString()));
         }
     }
+
+    @Nested
+    @DisplayName("handleEntitlementGranted()")
+    class HandleEntitlementGranted {
+
+        @Test
+        @Transactional
+        @DisplayName("valid step GRANTING_ENTITLEMENT updates status COMPLETED, step COMPLETED, records history, and writes OrderCompletedIntegrationEvent outbox row")
+        void handleEntitlementGranted_validStep_completesOrderAndPublishesOutboxEvent() {
+            Order order = createAndPersistOrder(SagaStep.GRANTING_ENTITLEMENT, OrderStatus.PENDING);
+            orderSagaService.handleEntitlementGranted(order.getId(), UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.COMPLETED);
+
+            List<OrderSagaHistory> history = findSagaHistory(order.getId());
+            assertThat(history).hasSize(2);
+            assertThat(history.get(0).getStep()).isEqualTo(SagaStep.GRANTING_ENTITLEMENT);
+            assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
+            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.COMPLETED);
+            assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
+
+            assertSingleOutboxEvent(order.getId(), "order.events", "OrderCompletedIntegrationEvent");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale EntitlementGrantedEvent for unexpected saga step is ignored without modifying order or creating outbox events")
+        void handleEntitlementGranted_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.COMPLETED, OrderStatus.COMPLETED);
+            assertStaleEventIgnored(order, () -> orderSagaService.handleEntitlementGranted(order.getId(), UUID.randomUUID().toString()));
+        }
+
+        @Test
+        @DisplayName("throws ResourceNotFoundException when target order does not exist")
+        void handleEntitlementGranted_notFound_throwsResourceNotFoundException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            assertThatThrownBy(() -> orderSagaService.handleEntitlementGranted(orderId, triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
 }

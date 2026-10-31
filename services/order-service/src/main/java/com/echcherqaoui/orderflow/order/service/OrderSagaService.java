@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmedOrderEvent;
+import com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
@@ -431,5 +432,31 @@ public class OrderSagaService {
 
         outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, order.getCancellationReason().name());
         eventPublisher.publishEvent(new PaymentRefundFailedOrderEvent(orderId, reason));
+    }
+
+    // =========================================================================
+    // ENTITLEMENT GRANT (GRANTING_ENTITLEMENT -> COMPLETED)
+    // =========================================================================
+
+    @Transactional
+    public void handleEntitlementGranted(@lombok.NonNull UUID orderId,
+                                         @lombok.NonNull String triggerEventId) {
+        Order order = getOrder(orderId);
+        if (isStaleOrDuplicate(order, GRANTING_ENTITLEMENT, "EntitlementGrantedEvent")) return;
+
+        order.setStatus(OrderStatus.COMPLETED)
+              .setCurrentSagaStep(SagaStep.COMPLETED);
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.completed(GRANTING_ENTITLEMENT, Map.of("userId", order.getUserId())),
+              SagaStepLogger.StepLog.completed(SagaStep.COMPLETED, Map.of()),
+              "EntitlementGrantedEvent",
+              triggerEventId
+        );
+
+        outboxWriter.publishOrderCompletedEvent(orderId, triggerEventId);
+        eventPublisher.publishEvent(new OrderConfirmedEvent(orderId));
     }
 }
