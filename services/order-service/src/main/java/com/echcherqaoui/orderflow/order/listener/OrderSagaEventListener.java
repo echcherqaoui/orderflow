@@ -3,6 +3,7 @@ package com.echcherqaoui.orderflow.order.listener;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
+import com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
@@ -125,10 +126,19 @@ public class OrderSagaEventListener {
 
     @Async("taskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onPaymentRefundFailed(@lombok.NonNull PaymentRefundFailedOrderEvent event) {
+    public void handlePaymentRefundFailed(@lombok.NonNull PaymentRefundFailedOrderEvent event) {
         emitterRegistry.sendAndComplete(event.orderId(), Map.of(
               "status", "ORDER_FAILED_REFUND_FAILED",
               "message", "Your refund could not be processed automatically. Our support team has been notified."
+        ));
+    }
+
+    @Async("taskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleOrderConfirmed(@NonNull OrderConfirmedEvent event) {
+        emitterRegistry.sendAndComplete(event.orderId(), Map.of(
+              "status", "ORDER_CONFIRMED",
+              "message", "Your order has been successfully confirmed."
         ));
     }
 }

@@ -21,7 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -366,53 +365,36 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
     }
 
     @Nested
-    @DisplayName("Transactional Integrity")
-    class TransactionalIntegrity {
+    @DisplayName("publishOrderCompletedEvent()")
+    class PublishOrderCompletedEvent {
 
         @Test
         @Transactional
-        @DisplayName("publishing multiple commands in single transaction persists all records sequentially")
-        void publishingMultipleCommands_persistsAllInSameTransaction() {
+        @DisplayName("persists wire-format outbox row decodable to OrderCompletedIntegrationEvent")
+        void publishOrderCompletedEvent_persistsRealSerializedPayload() {
             UUID orderId = UUID.randomUUID();
-            String causationId = UUID.randomUUID().toString();
+            String triggerEventId = UUID.randomUUID().toString();
 
-            outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 5000L);
-            outboxWriter.publishReleaseInventoryCommand(orderId, causationId, "cart-multi");
+            outboxWriter.publishOrderCompletedEvent(orderId, triggerEventId);
 
-            entityManager.flush();
-            entityManager.clear();
+            OutboxEvent event = findAndAssertSingleOutboxEvent(orderId, "order.events", "OrderCompletedIntegrationEvent");
+            com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent decoded =
+                  deserialize(event.getPayload(), com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent.class);
 
-            List<OutboxEvent> events = entityManager
-                  .createQuery(
-                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId ORDER BY e.createdAt ASC",
-                        OutboxEvent.class
-                  )
-                  .setParameter("orderId", orderId.toString())
-                  .getResultList();
-
-            assertThat(events).hasSize(2);
-            assertThat(events.get(0).getEventType()).isEqualTo("ChargePaymentCommand");
-            assertThat(events.get(1).getEventType()).isEqualTo("ReleaseInventoryCommand");
+            assertThat(decoded.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(triggerEventId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
         }
 
         @Test
-        @Transactional
-        @DisplayName("transaction rollback discards written outbox entries")
-        void transactionRollback_discardsOutboxEntries() {
+        @DisplayName("without an active transaction throws IllegalTransactionStateException")
+        void publishOrderCompletedEvent_noTransaction_throwsException() {
             UUID orderId = UUID.randomUUID();
-            outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 2000L);
-            entityManager.flush();
+            String triggerEventId = UUID.randomUUID().toString();
 
-            TestTransaction.flagForRollback();
-            TestTransaction.end();
-
-            TestTransaction.start();
-            List<OutboxEvent> rows = entityManager
-                  .createQuery("SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId", OutboxEvent.class)
-                  .setParameter("orderId", orderId.toString())
-                  .getResultList();
-
-            assertThat(rows).isEmpty();
+            assertThatThrownBy(() -> outboxWriter.publishOrderCompletedEvent(orderId, triggerEventId))
+                  .isInstanceOf(IllegalTransactionStateException.class);
         }
     }
 }

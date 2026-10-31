@@ -6,6 +6,7 @@ import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitle
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
+import com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.ChargePaymentCommand;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.RefundPaymentCommand;
@@ -163,6 +164,20 @@ class OutboxWriterTest {
 
             then(signatureService).should().sign(any(String[].class));
             then(serializer).should().serialize(eq(PAYMENT_TOPIC), any(Message.class));
+            then(outboxEventRepository).should().save(any(OutboxEvent.class));
+        }
+
+        @Test
+        @DisplayName("repository save failure propagates exception")
+        void publishOrderCompletedEvent_repositorySaveFails_propagatesException() {
+            RuntimeException dbException = new RuntimeException("Database constraint violation");
+            given(outboxEventRepository.save(any(OutboxEvent.class))).willThrow(dbException);
+
+            assertThatThrownBy(() -> outboxWriter.publishOrderCompletedEvent(orderId, causationMessageId))
+                  .isSameAs(dbException);
+
+            then(signatureService).should().sign(any(String[].class));
+            then(serializer).should().serialize(eq(ORDER_EVENTS_TOPIC), any(Message.class));
             then(outboxEventRepository).should().save(any(OutboxEvent.class));
         }
     }
@@ -390,6 +405,41 @@ class OutboxWriterTest {
             assertThat(savedEvent.getAggregateType()).isEqualTo("entitlement.commands");
             assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
             assertThat(savedEvent.getEventType()).isEqualTo("GrantEntitlementCommand");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishOrderCompletedEvent()")
+    class PublishOrderCompletedEvent {
+
+        @Test
+        @DisplayName("successful invocation signs integration event with triggerEventId and saves outbox event")
+        void publishOrderCompletedEvent_success_buildsAndSavesEvent() {
+            outboxWriter.publishOrderCompletedEvent(orderId, causationMessageId);
+
+            then(signatureService).should().sign(signatureParamsCaptor.capture());
+            String[] params = signatureParamsCaptor.getValue();
+
+            assertThat(params).hasSize(3);
+            assertThat(UUID.fromString(params[0])).isNotNull();
+            assertThat(params[1]).isEqualTo(orderId.toString());
+            assertThat(Long.parseLong(params[2])).isGreaterThan(0L);
+
+            then(serializer).should().serialize(eq(ORDER_EVENTS_TOPIC), messageCaptor.capture());
+            OrderCompletedIntegrationEvent event = (OrderCompletedIntegrationEvent) messageCaptor.getValue();
+
+            assertThat(event.getOrderId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(causationMessageId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getAggregateType()).isEqualTo("order.events");
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("OrderCompletedIntegrationEvent");
             assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
         }
     }

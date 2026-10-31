@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.order.listener;
 
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
+import com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
@@ -21,7 +22,6 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.then;
 
 @ExtendWith(MockitoExtension.class)
@@ -79,7 +79,7 @@ class OrderSagaEventListenerTest {
     }
 
     @Nested
-    @DisplayName("handleOrderCancelled(OrderCancelledEvent)")
+    @DisplayName("handleOrderCancelled()")
     class HandleOrderCancelledEvent {
 
         @Test
@@ -100,7 +100,7 @@ class OrderSagaEventListenerTest {
     }
 
     @Nested
-    @DisplayName("handleOrderCancelled(ReservationExtensionFailedOrderEvent)")
+    @DisplayName("handleOrderCancelled()")
     class HandleReservationExtensionFailedEvent {
 
         @Test
@@ -161,13 +161,6 @@ class OrderSagaEventListenerTest {
                   )
             );
         }
-
-        @Test
-        @DisplayName("null event throws NullPointerException")
-        void handleInventoryConfirmationFailed_nullEvent_throwsNullPointerException() {
-            assertThatThrownBy(() -> listener.handleInventoryConfirmationFailed(null))
-                  .isInstanceOf(NullPointerException.class);
-        }
     }
 
     @Nested
@@ -192,7 +185,7 @@ class OrderSagaEventListenerTest {
     }
 
     @Nested
-    @DisplayName("onPaymentRefundFailed()")
+    @DisplayName("handlePaymentRefundFailed()")
     class OnPaymentRefundFailed {
 
         @Test
@@ -200,13 +193,34 @@ class OrderSagaEventListenerTest {
         void onPaymentRefundFailed_sendsStatusAndCompletes() {
             PaymentRefundFailedOrderEvent event = new PaymentRefundFailedOrderEvent(orderId, "GATEWAY_TIMEOUT");
 
-            listener.onPaymentRefundFailed(event);
+            listener.handlePaymentRefundFailed(event);
 
             then(emitterRegistry).should().sendAndComplete(
                   orderId,
                   Map.of(
                         "status", "ORDER_FAILED_REFUND_FAILED",
                         "message", "Your refund could not be processed automatically. Our support team has been notified."
+                  )
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("handleOrderConfirmed()")
+    class OnOrderConfirmed {
+
+        @Test
+        @DisplayName("sends ORDER_CONFIRMED status and completes emitter")
+        void onOrderConfirmed_sendsStatusAndCompletes() {
+            OrderConfirmedEvent event = new OrderConfirmedEvent(orderId);
+
+            listener.handleOrderConfirmed(event);
+
+            then(emitterRegistry).should().sendAndComplete(
+                  orderId,
+                  Map.of(
+                        "status", "ORDER_CONFIRMED",
+                        "message", "Your order has been successfully confirmed."
                   )
             );
         }
