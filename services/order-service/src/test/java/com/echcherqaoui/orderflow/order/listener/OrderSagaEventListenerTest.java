@@ -5,6 +5,7 @@ import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.OrderProvisioningFailedEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
@@ -221,6 +222,30 @@ class OrderSagaEventListenerTest {
                   Map.of(
                         "status", "ORDER_CONFIRMED",
                         "message", "Your order has been successfully confirmed."
+                  )
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("handleOrderProvisioningFailed()")
+    class HandleOrderProvisioningFailed {
+
+        @Test
+        @DisplayName("sends PROVISIONING_FAILED_REVERSING status and keeps emitter open")
+        void handleOrderProvisioningFailed_sendsStatusAndKeepsOpen() {
+            OrderProvisioningFailedEvent event = new OrderProvisioningFailedEvent(
+                  orderId,
+                  "ENTITLEMENT_GRANT_TIMEOUT"
+            );
+
+            listener.handleOrderProvisioningFailed(event);
+
+            then(emitterRegistry).should().sendAndKeepOpen(
+                  orderId,
+                  Map.of(
+                        "status", "PROVISIONING_FAILED_REVERSING",
+                        "reason", "ENTITLEMENT_GRANT_TIMEOUT"
                   )
             );
         }

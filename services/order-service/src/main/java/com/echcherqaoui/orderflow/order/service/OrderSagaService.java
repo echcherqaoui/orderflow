@@ -7,6 +7,7 @@ import com.echcherqaoui.orderflow.order.events.InventoryConfirmedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.OrderProvisioningFailedEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
@@ -16,6 +17,7 @@ import com.echcherqaoui.orderflow.order.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.order.model.Order;
 import com.echcherqaoui.orderflow.order.model.OrderItem;
 import com.echcherqaoui.orderflow.order.model.enums.CancellationReason;
+import com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome;
 import com.echcherqaoui.orderflow.order.model.enums.OrderStatus;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStep;
 import com.echcherqaoui.orderflow.order.repository.OrderRepository;
@@ -165,8 +167,10 @@ public class OrderSagaService {
                                        @lombok.NonNull String paymentIntentId,
                                        @lombok.NonNull String clientSecret,
                                        @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "PaymentInitiatedEvent";
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, INITIALIZING_PAYMENT, "PaymentInitiatedEvent")) return;
+
+        if (isStaleOrDuplicate(order, INITIALIZING_PAYMENT, triggerEvent)) return;
 
         order.setPaymentIntentId(paymentIntentId)
               .setCurrentSagaStep(EXTENDING_INVENTORY);
@@ -176,7 +180,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(INITIALIZING_PAYMENT, Map.of("paymentIntentId", paymentIntentId)),
               SagaStepLogger.StepLog.started(EXTENDING_INVENTORY, Map.of("paymentIntentId", paymentIntentId)),
-              "PaymentInitiatedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -190,8 +194,10 @@ public class OrderSagaService {
                                           @lombok.NonNull String cartId,
                                           @lombok.NonNull Instant newExpiresAt,
                                           @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "ReservationExtendedEvent";
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, "ReservationExtendedEvent")) return;
+
+        if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, triggerEvent)) return;
 
         order.setCurrentSagaStep(PAYMENT_SESSION_ACTIVE);
         orderRepository.save(order);
@@ -200,7 +206,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(EXTENDING_INVENTORY, Map.of("cartId", cartId, "newExpiresAt", String.valueOf(newExpiresAt.getEpochSecond()))),
               SagaStepLogger.StepLog.started(PAYMENT_SESSION_ACTIVE, Map.of("cartId", cartId)),
-              "ReservationExtendedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -213,8 +219,10 @@ public class OrderSagaService {
                                                  @lombok.NonNull String cartId,
                                                  @lombok.NonNull String reason,
                                                  @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "ReservationExtensionFailedEvent";
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, "ReservationExtensionFailedEvent")) return;
+
+        if (isStaleOrDuplicate(order, EXTENDING_INVENTORY, triggerEvent)) return;
 
         order.setStatus(CANCELLING)
               .setCancellationReason(RESERVATION_EXPIRED)
@@ -225,7 +233,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.failed(EXTENDING_INVENTORY, Map.of("reason", reason)),
               SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("cartId", cartId)),
-              "ReservationExtensionFailedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -241,8 +249,10 @@ public class OrderSagaService {
     public void handlePaymentCharged(@lombok.NonNull UUID orderId,
                                      @lombok.NonNull String paymentIntentId,
                                      @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "PaymentChargedEvent";
+
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, PAYMENT_SESSION_ACTIVE, "PaymentChargedEvent")) return;
+        if (isStaleOrDuplicate(order, PAYMENT_SESSION_ACTIVE, triggerEvent)) return;
 
         order.setCurrentSagaStep(CONFIRMING_INVENTORY);
         orderRepository.save(order);
@@ -251,7 +261,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(PAYMENT_SESSION_ACTIVE, Map.of("paymentIntentId", paymentIntentId)),
               SagaStepLogger.StepLog.started(CONFIRMING_INVENTORY, Map.of("paymentIntentId", paymentIntentId)),
-              "PaymentChargedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -280,8 +290,10 @@ public class OrderSagaService {
     public void handleInventoryConfirmationFailed(@lombok.NonNull UUID orderId,
                                                   @lombok.NonNull String reason,
                                                   @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "InventoryConfirmationFailedEvent";
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, "InventoryConfirmationFailedEvent")) return;
+
+        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, triggerEvent)) return;
 
         order.setStatus(CANCELLING)
               .setCancellationReason(RESERVATION_EXPIRED)
@@ -293,7 +305,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.failed(CONFIRMING_INVENTORY, Map.of("reason", reason)),
               SagaStepLogger.StepLog.started(REVERSING_PAYMENT, Map.of("reason", reason)),
-              "InventoryConfirmationFailedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -305,8 +317,9 @@ public class OrderSagaService {
     public void handleInventoryConfirmed(@lombok.NonNull UUID orderId,
                                          @lombok.NonNull String cartId,
                                          @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "InventoryConfirmedEvent";
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, "InventoryConfirmedEvent")) return;
+        if (isStaleOrDuplicate(order, CONFIRMING_INVENTORY, triggerEvent)) return;
 
         order.setCurrentSagaStep(GRANTING_ENTITLEMENT);
         orderRepository.save(order);
@@ -315,7 +328,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(CONFIRMING_INVENTORY, Map.of("cartId", cartId)),
               SagaStepLogger.StepLog.started(GRANTING_ENTITLEMENT, Map.of("userId", order.getUserId())),
-              "InventoryConfirmedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -337,8 +350,10 @@ public class OrderSagaService {
     public void handleInventoryReleased(@lombok.NonNull UUID orderId,
                                         @lombok.NonNull String cartId,
                                         @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "InventoryReleasedEvent";
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, REVERSING_INVENTORY, "InventoryReleasedEvent")) return;
+
+        if (isStaleOrDuplicate(order, REVERSING_INVENTORY, triggerEvent)) return;
 
         order.setStatus(CANCELLED)
               .setCurrentSagaStep(SagaStep.REVERSED);
@@ -349,7 +364,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(REVERSING_INVENTORY, Map.of("cartId", cartId)),
               SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("cartId", cartId)),
-              "InventoryReleasedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -361,9 +376,10 @@ public class OrderSagaService {
     public void handlePaymentCancelled(@lombok.NonNull UUID orderId,
                                        String paymentIntentId,
                                        @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "PaymentCancelledEvent";
         Order order = getOrder(orderId);
 
-        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentCancelledEvent")) return;
+        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, triggerEvent)) return;
 
         order.setStatus(CANCELLED)
               .setCurrentSagaStep(REVERSED);
@@ -374,7 +390,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId != null ? paymentIntentId : "N/A")),
               SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("reason", order.getCancellationReason().name())),
-              "PaymentCancelledEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -386,9 +402,10 @@ public class OrderSagaService {
     public void handlePaymentRefunded(@lombok.NonNull UUID orderId,
                                       @lombok.NonNull String paymentIntentId,
                                       @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "PaymentRefundedEvent";
         Order order = getOrder(orderId);
 
-        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentRefundedEvent")) return;
+        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, triggerEvent)) return;
 
         order.setStatus(CANCELLED)
               .setCurrentSagaStep(REFUNDED);
@@ -399,7 +416,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId)),
               SagaStepLogger.StepLog.completed(REFUNDED, Map.of("reason", order.getCancellationReason().name())),
-              "PaymentRefundedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -412,9 +429,10 @@ public class OrderSagaService {
                                           @lombok.NonNull String paymentIntentId,
                                           @lombok.NonNull String reason,
                                           @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "PaymentRefundFailedEvent";
         Order order = getOrder(orderId);
 
-        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, "PaymentRefundFailedEvent")) return;
+        if (isStaleOrDuplicate(order, REVERSING_PAYMENT, triggerEvent)) return;
 
         order.setStatus(OrderStatus.CANCELLED)
               .setCancellationReason(CancellationReason.REFUND_FAILED)
@@ -426,7 +444,7 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.failed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId, "reason", reason)),
               SagaStepLogger.StepLog.completed(SagaStep.MANUAL_INTERVENTION_REQUIRED, Map.of("reason", reason)),
-              "PaymentRefundFailedEvent",
+              triggerEvent,
               triggerEventId
         );
 
@@ -441,8 +459,10 @@ public class OrderSagaService {
     @Transactional
     public void handleEntitlementGranted(@lombok.NonNull UUID orderId,
                                          @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "EntitlementGrantedEvent";
+
         Order order = getOrder(orderId);
-        if (isStaleOrDuplicate(order, GRANTING_ENTITLEMENT, "EntitlementGrantedEvent")) return;
+        if (isStaleOrDuplicate(order, GRANTING_ENTITLEMENT, triggerEvent)) return;
 
         order.setStatus(OrderStatus.COMPLETED)
               .setCurrentSagaStep(SagaStep.COMPLETED);
@@ -452,11 +472,46 @@ public class OrderSagaService {
               orderId,
               SagaStepLogger.StepLog.completed(GRANTING_ENTITLEMENT, Map.of("userId", order.getUserId())),
               SagaStepLogger.StepLog.completed(SagaStep.COMPLETED, Map.of()),
-              "EntitlementGrantedEvent",
+              triggerEvent,
               triggerEventId
         );
 
         outboxWriter.publishOrderCompletedEvent(orderId, triggerEventId);
         eventPublisher.publishEvent(new OrderConfirmedEvent(orderId));
+    }
+
+    // =========================================================================
+    // ENTITLEMENT FAILURE COMPENSATION (GRANTING_ENTITLEMENT -> CANCEL_IN_PROGRESS)
+    // =========================================================================
+
+    @Transactional
+    public void handleEntitlementGrantFailed(@lombok.NonNull UUID orderId,
+                                             @lombok.NonNull String reason,
+                                             @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "EntitlementGrantFailedEvent";
+        Order order = getOrder(orderId);
+
+        if (isStaleOrDuplicate(order, GRANTING_ENTITLEMENT, triggerEvent)) return;
+
+        order.setStatus(OrderStatus.CANCELLING)
+              .setCancellationReason(CancellationReason.ENTITLEMENT_FAILED)
+              .setInventoryReleaseStatus(CompensationOutcome.PENDING)
+              .setRefundStatus(CompensationOutcome.PENDING)
+              .setCurrentSagaStep(SagaStep.CANCEL_IN_PROGRESS);
+
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              SagaStepLogger.StepLog.failed(GRANTING_ENTITLEMENT, Map.of("reason", reason)),
+              SagaStepLogger.StepLog.started(SagaStep.CANCEL_IN_PROGRESS, Map.of("reason", reason)),
+              triggerEvent,
+              triggerEventId
+        );
+
+        outboxWriter.publishRefundPaymentCommand(orderId, triggerEventId, order.getPaymentIntentId(), reason);
+        outboxWriter.publishRestockInventoryCommand(orderId, triggerEventId, order.getCartId());
+
+        eventPublisher.publishEvent(new OrderProvisioningFailedEvent(orderId, reason));
     }
 }

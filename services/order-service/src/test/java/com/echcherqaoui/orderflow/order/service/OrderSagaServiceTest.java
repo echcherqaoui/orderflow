@@ -6,6 +6,7 @@ import com.echcherqaoui.orderflow.order.events.InventoryConfirmationFailedOrderE
 import com.echcherqaoui.orderflow.order.events.InventoryConfirmedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.OrderProvisioningFailedEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
@@ -644,6 +645,45 @@ class OrderSagaServiceTest {
         @DisplayName("missing order throws ResourceNotFoundException and halts execution")
         void handleEntitlementGranted_notFound_throwsResourceNotFoundException() {
             verifyOrderNotFound(id -> orderSagaService.handleEntitlementGranted(id, triggerEventId));
+        }
+    }
+
+    @Nested
+    @DisplayName("handleEntitlementGrantFailed()")
+    class HandleEntitlementGrantFailed {
+
+        @Test
+        @DisplayName("valid step GRANTING_ENTITLEMENT: sets status FAILED, step CANCEL_IN_PROGRESS, publishes refund and release commands, and publishes provisioning failed event")
+        void handleEntitlementGrantFailed_validStep_updatesStateAndPublishesCommandsAndEvent() {
+            Order existingOrder = createOrder(SagaStep.GRANTING_ENTITLEMENT, OrderStatus.PENDING);
+            existingOrder.setPaymentIntentId("pi_entitlement_123");
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
+
+            String reason = "ENTITLEMENT_SERVICE_UNAVAILABLE";
+            orderSagaService.handleEntitlementGrantFailed(orderId, reason, triggerEventId);
+
+            assertThat(existingOrder.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(existingOrder.getCancellationReason()).isEqualTo(CancellationReason.ENTITLEMENT_FAILED);
+            assertThat(existingOrder.getCurrentSagaStep()).isEqualTo(SagaStep.CANCEL_IN_PROGRESS);
+
+            then(orderRepository).should().save(existingOrder);
+            verifyTransition(SagaStep.GRANTING_ENTITLEMENT, SagaStepStatus.FAILED, SagaStep.CANCEL_IN_PROGRESS, SagaStepStatus.STARTED, "EntitlementGrantFailedEvent", triggerEventId);
+            then(outboxWriter).should().publishRefundPaymentCommand(orderId, triggerEventId, "pi_entitlement_123", reason);
+            then(outboxWriter).should().publishReleaseInventoryCommand(orderId, triggerEventId, cartId);
+            then(eventPublisher).should().publishEvent(any(OrderProvisioningFailedEvent.class));
+        }
+
+        @Test
+        @DisplayName("stale event for unexpected step is ignored and produces no side effects")
+        void handleEntitlementGrantFailed_staleStep_ignoresEvent() {
+            verifyStaleEventIgnored(createOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING),
+                  () -> orderSagaService.handleEntitlementGrantFailed(orderId, "TIMEOUT", triggerEventId));
+        }
+
+        @Test
+        @DisplayName("missing order throws ResourceNotFoundException and halts execution")
+        void handleEntitlementGrantFailed_notFound_throwsResourceNotFoundException() {
+            verifyOrderNotFound(id -> orderSagaService.handleEntitlementGrantFailed(id, "TIMEOUT", triggerEventId));
         }
     }
 }
