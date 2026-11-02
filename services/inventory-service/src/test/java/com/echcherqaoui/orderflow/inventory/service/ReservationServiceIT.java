@@ -377,4 +377,53 @@ class ReservationServiceIT implements WithPostgres {
             );
         }
     }
+
+    @Nested
+    @DisplayName("restockConfirmedReservation(UUID, String, String)")
+    class RestockConfirmedReservation {
+
+        @Test
+        @DisplayName("restocking confirmed reservation restores item stock, deletes confirmed reservation records, and publishes restocked event")
+        void restockConfirmedReservation_confirmedReservation_restoresStockAndPublishesEvent() {
+            reservationService.reserve(cartId, Set.of(item1.getId(), item2.getId()));
+
+            UUID orderUuid = UUID.randomUUID();
+            reservationService.confirmReservation(cartId, orderUuid, "msg-confirm-123");
+
+            assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
+            assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(9);
+
+            String messageId = "msg-restock-456";
+            reservationService.restockConfirmedReservation(orderUuid, cartId, messageId);
+
+            assertThat(itemRepository.findById(item1.getId()).orElseThrow().getRemainingUnits()).isEqualTo(10);
+            assertThat(itemRepository.findById(item2.getId()).orElseThrow().getRemainingUnits()).isEqualTo(10);
+
+            List<InventoryReservation> confirmedReservations = transactionTemplate.execute(status ->
+                  reservationRepository.findByCartIdAndStatus(cartId, ReservationStatus.CONFIRMED)
+            );
+            assertThat(confirmedReservations).isEmpty();
+
+            verify(outboxWriter).publishInventoryRestockedEvent(
+                  orderUuid,
+                  messageId,
+                  cartId
+            );
+        }
+
+        @Test
+        @DisplayName("restocking non-existent confirmed reservation is idempotent and publishes event without DB changes")
+        void restockConfirmedReservation_noConfirmedReservation_publishesEventOnly() {
+            UUID orderUuid = UUID.randomUUID();
+            String messageId = "msg-restock-789";
+
+            reservationService.restockConfirmedReservation(orderUuid, "cart-non-existent", messageId);
+
+            verify(outboxWriter).publishInventoryRestockedEvent(
+                  orderUuid,
+                  messageId,
+                  "cart-non-existent"
+            );
+        }
+    }
 }
