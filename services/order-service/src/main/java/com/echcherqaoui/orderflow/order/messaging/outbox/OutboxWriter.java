@@ -7,6 +7,7 @@ import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitle
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
+import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.RestockInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
@@ -118,11 +119,11 @@ public class OutboxWriter {
 
     @Transactional(propagation = MANDATORY)
     public void publishReleaseInventoryCommand(@lombok.NonNull UUID orderId,
-                                               String messageId,
+                                               String triggerEventId,
                                                @lombok.NonNull String cartId) {
         String orderIdStr = orderId.toString();
 
-        MessageMetadata metadata = createMetadata(orderIdStr, messageId, cartId);
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, cartId);
 
         ReleaseInventoryCommand command = ReleaseInventoryCommand.newBuilder()
               .setMetadata(metadata)
@@ -134,11 +135,11 @@ public class OutboxWriter {
 
     @Transactional(propagation = MANDATORY)
     public void publishExtendReservationCommand(@lombok.NonNull UUID orderId,
-                                                String messageId,
+                                                String triggerEventId,
                                                 @lombok.NonNull String cartId) {
         String orderIdStr = orderId.toString();
 
-        MessageMetadata metadata = createMetadata(orderIdStr, messageId,  cartId);
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId,  cartId);
 
         ExtendReservationCommand command = ExtendReservationCommand.newBuilder()
               .setMetadata(metadata)
@@ -151,12 +152,12 @@ public class OutboxWriter {
 
     @Transactional(propagation = MANDATORY)
     public void publishCancelPaymentCommand(@lombok.NonNull UUID orderId,
-                                            String messageId,
+                                            String triggerEventId,
                                             @lombok.NonNull String paymentIntentId,
                                             @lombok.NonNull String reason) {
         String orderIdStr = orderId.toString();
 
-        MessageMetadata metadata = createMetadata(orderIdStr, messageId, paymentIntentId, reason);
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, paymentIntentId, reason);
 
         CancelPaymentCommand command = CancelPaymentCommand.newBuilder()
               .setMetadata(metadata)
@@ -267,5 +268,21 @@ public class OutboxWriter {
               .build();
 
         persist(event, orderIdStr, ORDER_EVENTS_AGGREGATE);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishRestockInventoryCommand(@lombok.NonNull UUID orderId,
+                                               @lombok.NonNull String triggerEventId,
+                                               @lombok.NonNull String cartId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(orderIdStr, triggerEventId, cartId);
+
+        RestockInventoryCommand command = RestockInventoryCommand.newBuilder()
+              .setMetadata(metadata)
+              .setCartId(cartId)
+              .build();
+
+        persist(command, orderIdStr, INVENTORY_COMMANDS_AGGREGATE);
     }
 }

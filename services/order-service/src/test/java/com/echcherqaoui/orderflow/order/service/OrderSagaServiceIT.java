@@ -680,4 +680,59 @@ class OrderSagaServiceIT implements WithPostgres {
                   .isInstanceOf(ResourceNotFoundException.class);
         }
     }
+
+    @Nested
+    @DisplayName("handleEntitlementGrantFailed()")
+    class HandleEntitlementGrantFailed {
+
+        @Test
+        @Transactional
+        @DisplayName("valid step GRANTING_ENTITLEMENT updates status FAILED, cancellation reason ENTITLEMENT_FAILED, step CANCEL_IN_PROGRESS, records history, and writes outbox command rows")
+        void handleEntitlementGrantFailed_validStep_updatesStateAndPublishesCommands() {
+            Order order = createAndPersistOrder(SagaStep.GRANTING_ENTITLEMENT, OrderStatus.PENDING);
+            order.setPaymentIntentId("pi_entitlement_999");
+            entityManager.merge(order);
+
+            String reason = "ENTITLEMENT_SERVICE_TIMEOUT";
+            orderSagaService.handleEntitlementGrantFailed(order.getId(), reason, UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLING);
+            assertThat(updated.getCancellationReason()).isEqualTo(CancellationReason.ENTITLEMENT_FAILED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.CANCEL_IN_PROGRESS);
+
+            List<OrderSagaHistory> history = findSagaHistory(order.getId());
+            assertThat(history).hasSize(2);
+            assertThat(history.get(0).getStep()).isEqualTo(SagaStep.GRANTING_ENTITLEMENT);
+            assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.FAILED);
+            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.CANCEL_IN_PROGRESS);
+            assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.STARTED);
+
+            List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
+            assertThat(outboxRows).hasSize(2);
+            assertThat(outboxRows)
+                  .extracting(OutboxEvent::getEventType)
+                  .containsExactlyInAnyOrder("RefundPaymentCommand", "ReleaseInventoryCommand");
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("stale EntitlementGrantFailedEvent for unexpected saga step is ignored without modifying order or creating outbox events")
+        void handleEntitlementGrantFailed_staleStep_ignoresEvent() {
+            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
+            assertStaleEventIgnored(order, () -> orderSagaService.handleEntitlementGrantFailed(order.getId(), "TIMEOUT", UUID.randomUUID().toString()));
+        }
+
+        @Test
+        @DisplayName("throws ResourceNotFoundException when target order does not exist")
+        void handleEntitlementGrantFailed_notFound_throwsResourceNotFoundException() {
+            UUID orderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            assertThatThrownBy(() -> orderSagaService.handleEntitlementGrantFailed(orderId, "TIMEOUT", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
 }

@@ -6,6 +6,7 @@ import com.echcherqaoui.orderflow.order.events.OrderCancelledEvent;
 import com.echcherqaoui.orderflow.order.events.OrderConfirmedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
+import com.echcherqaoui.orderflow.order.events.OrderProvisioningFailedEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
@@ -140,5 +141,17 @@ public class OrderSagaEventListener {
               "status", "ORDER_CONFIRMED",
               "message", "Your order has been successfully confirmed."
         ));
+    }
+
+    @Async("taskExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleOrderProvisioningFailed(@NonNull OrderProvisioningFailedEvent event) {
+        emitterRegistry.sendAndKeepOpen(
+              event.orderId(),
+              Map.of(
+                    "status", "PROVISIONING_FAILED_REVERSING",
+                    "reason", event.reason()
+              )
+        );
     }
 }

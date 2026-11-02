@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitle
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ExtendReservationCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ReleaseInventoryCommand;
+import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.RestockInventoryCommand;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCancelledIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.order.v1.OrderCompletedIntegrationEvent;
 import com.echcherqaoui.orderflow.contracts.payment.commands.v1.CancelPaymentCommand;
@@ -47,6 +48,7 @@ public class SchemaRegistryWarmer {
         warm(INVENTORY_COMMANDS_TOPIC, ReleaseInventoryCommand.getDefaultInstance());
         warm(INVENTORY_COMMANDS_TOPIC, ExtendReservationCommand.getDefaultInstance());
         warm(INVENTORY_COMMANDS_TOPIC, ConfirmReservationCommand.getDefaultInstance());
+        warm(INVENTORY_COMMANDS_TOPIC, RestockInventoryCommand.getDefaultInstance());
 
         warm(ORDER_EVENTS_TOPIC, OrderCancelledIntegrationEvent.getDefaultInstance());
         warm(ORDER_EVENTS_TOPIC, OrderCompletedIntegrationEvent.getDefaultInstance());
