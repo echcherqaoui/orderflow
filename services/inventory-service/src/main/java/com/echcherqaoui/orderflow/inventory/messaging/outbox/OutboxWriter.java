@@ -6,6 +6,7 @@ import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryRestockedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionRejectedEvent;
@@ -226,5 +227,21 @@ public class OutboxWriter {
               .build();
 
         persist(event, itemName, ITEM_EVENTS);
+    }
+
+    @Transactional(propagation = MANDATORY)
+    public void publishInventoryRestockedEvent(@lombok.NonNull UUID orderId,
+                                               String messageId,
+                                               @lombok.NonNull String cartId) {
+        String orderIdStr = orderId.toString();
+
+        MessageMetadata metadata = createMetadata(orderIdStr, messageId, cartId);
+
+        InventoryRestockedEvent event = InventoryRestockedEvent.newBuilder()
+              .setMetadata(metadata)
+              .setCartId(cartId)
+              .build();
+
+        persist(event, orderIdStr, SAGA_EVENTS);
     }
 }

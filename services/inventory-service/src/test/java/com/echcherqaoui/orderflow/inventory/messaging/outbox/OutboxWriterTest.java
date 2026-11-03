@@ -5,6 +5,7 @@ import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryRestockedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionRejectedEvent;
@@ -472,6 +473,67 @@ class OutboxWriterTest {
             given(signatureService.sign(any(String[].class))).willThrow(signatureException);
 
             assertThatThrownBy(() -> outboxWriter.publishStockProvisionRejectedEvent(causationId, "item-1", "REASON"))
+                  .isSameAs(signatureException);
+
+            verifyNoInteractions(serializer, outboxEventRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("publishInventoryRestockedEvent()")
+    class PublishInventoryRestockedEvent {
+
+        @Test
+        @DisplayName("successful invocation creates InventoryRestockedEvent, signs metadata, and saves outbox event")
+        void publishInventoryRestockedEvent_success_buildsProtobufSignsAndSavesEvent() {
+            given(signatureService.sign(any(String[].class))).willReturn(dummySignature);
+            given(serializer.serialize(eq(EXPECTED_TOPIC), any(Message.class))).willReturn(serializedPayload);
+
+            outboxWriter.publishInventoryRestockedEvent(orderId, causationId, cartId);
+
+            then(signatureService).should().sign(
+                  messageIdCaptor.capture(),
+                  eq(orderId.toString()),
+                  secondsCaptor.capture(),
+                  eq(cartId)
+            );
+
+            String capturedMessageId = messageIdCaptor.getValue();
+            long capturedSeconds = Long.parseLong(secondsCaptor.getValue());
+
+            assertThat(capturedMessageId).isNotNull();
+            assertThat(UUID.fromString(capturedMessageId)).isNotNull();
+            assertThat(capturedSeconds).isGreaterThan(0L);
+
+            then(serializer).should().serialize(eq(EXPECTED_TOPIC), messageCaptor.capture());
+            Message capturedMessage = messageCaptor.getValue();
+            assertThat(capturedMessage).isInstanceOf(InventoryRestockedEvent.class);
+
+            InventoryRestockedEvent event = (InventoryRestockedEvent) capturedMessage;
+            assertThat(event.getCartId()).isEqualTo(cartId);
+            assertThat(event.getMetadata().getMessageId()).isEqualTo(capturedMessageId);
+            assertThat(event.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(event.getMetadata().getCausationId()).isEqualTo(causationId);
+            assertThat(event.getMetadata().getSignature()).isEqualTo(dummySignature);
+
+            then(outboxEventRepository).should().save(outboxEventCaptor.capture());
+            OutboxEvent savedEvent = outboxEventCaptor.getValue();
+
+            assertThat(savedEvent.getId()).isNotNull();
+            assertThat(savedEvent.getAggregateType()).isEqualTo(AGGREGATE_TYPE);
+            assertThat(savedEvent.getAggregateId()).isEqualTo(orderId.toString());
+            assertThat(savedEvent.getEventType()).isEqualTo("InventoryRestockedEvent");
+            assertThat(savedEvent.getPayload()).isEqualTo(serializedPayload);
+            assertThat(savedEvent.getCreatedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("signature service failure propagates exception and halts serialization and persistence")
+        void publishInventoryRestockedEvent_signatureFails_propagatesException() {
+            RuntimeException signatureException = new RuntimeException("HMAC signing error");
+            given(signatureService.sign(any(String[].class))).willThrow(signatureException);
+
+            assertThatThrownBy(() -> outboxWriter.publishInventoryRestockedEvent(orderId, causationId, cartId))
                   .isSameAs(signatureException);
 
             verifyNoInteractions(serializer, outboxEventRepository);

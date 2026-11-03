@@ -5,6 +5,7 @@ import com.echcherqaoui.orderflow.inventory.exception.domain.ItemNotFoundExcepti
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
 import com.echcherqaoui.orderflow.inventory.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.inventory.model.InventoryReservation;
+import com.echcherqaoui.orderflow.inventory.model.ReservationStatus;
 import com.echcherqaoui.orderflow.inventory.projection.ItemSummaryDto;
 import com.echcherqaoui.orderflow.inventory.repository.InventoryReservationRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
@@ -362,6 +363,52 @@ class ReservationServiceTest {
                   MESSAGE_ID
             );
             verify(outboxWriter, never()).publishInventoryConfirmedEvent(any(), any(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("restockConfirmedReservation(...)")
+    class RestockConfirmedReservationMethod {
+
+        @Test
+        @DisplayName("Should restore stock, delete reservations, and publish restocked event when confirmed reservations exist")
+        void restockConfirmedReservation_ConfirmedReservationsExist_Success() {
+            UUID orderUuid = UUID.fromString(ORDER_ID);
+            UUID resId1 = UUID.randomUUID();
+            UUID resId2 = UUID.randomUUID();
+            List<InventoryReservation> existing = List.of(
+                  new InventoryReservation().setId(resId1).setCartId(CART_ID).setItemId(ITEM_ID_1).setStatus(ReservationStatus.CONFIRMED),
+                  new InventoryReservation().setId(resId2).setCartId(CART_ID).setItemId(ITEM_ID_2).setStatus(ReservationStatus.CONFIRMED)
+            );
+
+            when(reservationRepository.findByCartIdAndStatus(CART_ID, ReservationStatus.CONFIRMED)).thenReturn(existing);
+
+            reservationService.restockConfirmedReservation(orderUuid, CART_ID, MESSAGE_ID);
+
+            verify(itemRepository).incrementStockBatch(Set.of(ITEM_ID_1, ITEM_ID_2));
+            verify(reservationRepository).deleteAllByIdInBatch(Set.of(resId1, resId2));
+            verify(outboxWriter).publishInventoryRestockedEvent(
+                  orderUuid,
+                  MESSAGE_ID,
+                  CART_ID
+            );
+        }
+
+        @Test
+        @DisplayName("Should publish restocked event without modifying database when no confirmed reservations are found")
+        void restockConfirmedReservation_NoConfirmedReservations_PublishesEventOnly() {
+            UUID orderUuid = UUID.fromString(ORDER_ID);
+            when(reservationRepository.findByCartIdAndStatus(CART_ID, ReservationStatus.CONFIRMED)).thenReturn(Collections.emptyList());
+
+            reservationService.restockConfirmedReservation(orderUuid, CART_ID, MESSAGE_ID);
+
+            verify(itemRepository, never()).incrementStockBatch(any());
+            verify(reservationRepository, never()).deleteAllByIdInBatch(any());
+            verify(outboxWriter).publishInventoryRestockedEvent(
+                  orderUuid,
+                  MESSAGE_ID,
+                  CART_ID
+            );
         }
     }
 }

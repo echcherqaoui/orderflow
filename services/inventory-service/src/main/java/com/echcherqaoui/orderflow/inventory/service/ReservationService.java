@@ -5,6 +5,7 @@ import com.echcherqaoui.orderflow.inventory.exception.domain.ItemNotFoundExcepti
 import com.echcherqaoui.orderflow.inventory.exception.domain.OutOfStockException;
 import com.echcherqaoui.orderflow.inventory.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.inventory.model.InventoryReservation;
+import com.echcherqaoui.orderflow.inventory.model.ReservationStatus;
 import com.echcherqaoui.orderflow.inventory.projection.ItemSummaryDto;
 import com.echcherqaoui.orderflow.inventory.repository.InventoryReservationRepository;
 import com.echcherqaoui.orderflow.inventory.repository.ItemRepository;
@@ -24,6 +25,7 @@ import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryError
 import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.EMPTY_ITEM_LIST;
 import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.ITEMS_NOT_FOUND;
 import static com.echcherqaoui.orderflow.inventory.exception.code.InventoryErrorCode.ITEMS_OUT_OF_STOCK;
+import static com.echcherqaoui.orderflow.inventory.model.ReservationStatus.CONFIRMED;
 import static com.echcherqaoui.orderflow.inventory.model.ReservationStatus.PENDING;
 
 @Service
@@ -46,6 +48,24 @@ public class ReservationService {
         // Single DB query: Delete reservation rows in batch
         reservationRepository.deleteAllByIdInBatch(reservationIds);
     }
+
+    private int releaseByStatus(String cartId, ReservationStatus status) {
+        List<InventoryReservation> reservations = reservationRepository.findByCartIdAndStatus(cartId, status);
+        if (reservations.isEmpty()) return 0;
+
+        Set<UUID> itemIds = reservations.stream()
+              .map(InventoryReservation::getItemId)
+              .collect(Collectors.toSet());
+
+        Set<UUID> ids = reservations.stream()
+              .map(InventoryReservation::getId)
+              .collect(Collectors.toSet());
+
+        releaseReservations(itemIds, ids);
+
+        return itemIds.size();
+    }
+
 
     /**
      * Idempotent on cartId. All-or-nothing across the full item list in a
@@ -161,46 +181,17 @@ public class ReservationService {
     }
 
     @Transactional
-    public void releaseReservation(@lombok.NonNull String cartId,
-                                   @lombok.NonNull String correlationId,
-                                   @lombok.NonNull String messageId) {
-        List<InventoryReservation> reservations = reservationRepository.findByCartIdAndStatus(cartId, PENDING);
-        UUID orderUuid = UUID.fromString(correlationId);
-
-        if (reservations.isEmpty()) {
-            log.info(
-                  "No active reservation found to release for cart {} (orderId: {})",
-                  cartId,
-                  correlationId
-            );
-            outboxWriter.publishInventoryReleasedEvent(orderUuid, messageId, cartId);
-
-            return;
-        }
-
-        Set<UUID> reservedItemIds = reservations.stream()
-              .map(InventoryReservation::getItemId)
-              .collect(Collectors.toSet());
-
-        Set<UUID> reservationIds = reservations.stream()
-              .map(InventoryReservation::getId)
-              .collect(Collectors.toSet());
-
-        releaseReservations(reservedItemIds, reservationIds);
-
-        outboxWriter.publishInventoryReleasedEvent(
-              UUID.fromString(correlationId),
-              messageId,
-              cartId
-        );
+    public void releaseReservation(String cartId, String correlationId, String messageId) {
+        int released = releaseByStatus(cartId, PENDING);
 
         log.info(
-              "Released {} reserved items for cart {} (orderId: {}, triggerMsg: {})",
-              reservedItemIds.size(),
+              "Released {} items for cart {} (orderId: {})",
+              released,
               cartId,
-              correlationId,
-              messageId
+              correlationId
         );
+
+        outboxWriter.publishInventoryReleasedEvent(UUID.fromString(correlationId), messageId, cartId);
     }
 
     @Transactional
@@ -222,5 +213,21 @@ public class ReservationService {
                   messageId
             );
         }
+    }
+
+    @Transactional
+    public void restockConfirmedReservation(UUID orderId,
+                                            String cartId,
+                                            String messageId) {
+        int restocked = releaseByStatus(cartId, CONFIRMED);
+
+        log.info(
+              "Restocked {} items for cart {} (orderId: {})",
+              restocked,
+              cartId,
+              orderId
+        );
+
+        outboxWriter.publishInventoryRestockedEvent(orderId, messageId, cartId);
     }
 }

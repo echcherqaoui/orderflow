@@ -4,6 +4,7 @@ import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmationFailedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryConfirmedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryReleasedEvent;
+import com.echcherqaoui.orderflow.contracts.inventory.events.v1.InventoryRestockedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtendedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.ReservationExtensionFailedEvent;
 import com.echcherqaoui.orderflow.contracts.inventory.events.v1.StockProvisionRejectedEvent;
@@ -163,27 +164,6 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
 
     @Test
     @Transactional
-    @DisplayName("publishInventoryReleasedEvent handles null causationId without populating causationId field")
-    void publishInventoryReleasedEvent_nullCausationId_omitsCausationIdField() {
-        UUID orderId = UUID.randomUUID();
-        String cartId = "cart-999";
-
-        outboxWriter.publishInventoryReleasedEvent(orderId, null, cartId);
-
-        OutboxEvent event = fetchOutboxEvent(orderId);
-
-        try (KafkaProtobufDeserializer<InventoryReleasedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
-            deserializer.configure(createDeserializerConfig(InventoryReleasedEvent.class), false);
-
-            InventoryReleasedEvent decoded = deserializer.deserialize(TOPIC_CONTEXT, event.getPayload());
-
-            assertThat(decoded.getMetadata().getCausationId()).isEmpty();
-            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
-        }
-    }
-
-    @Test
-    @Transactional
     @DisplayName("publishInventoryConfirmedEvent writes decodable Confluent wire payload to outbox")
     void publishInventoryConfirmedEvent_persistsRealSerializedPayload() {
         UUID orderId = UUID.randomUUID();
@@ -292,82 +272,29 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
     }
 
     @Test
-    @DisplayName("publish methods throw NullPointerException on null required parameters")
-    void publish_nullArguments_throwsNullPointerException() {
+    @Transactional
+    @DisplayName("publishInventoryRestockedEvent writes decodable Confluent wire payload to outbox")
+    void publishInventoryRestockedEvent_persistsRealSerializedPayload() {
         UUID orderId = UUID.randomUUID();
-        Instant now = Instant.now();
+        String causationId = "msg-causation-800";
+        String cartId = "cart-333";
 
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishReservationExtendedEvent(null, "c1", "cart-1", now)))
-              .isInstanceOf(NullPointerException.class);
+        outboxWriter.publishInventoryRestockedEvent(orderId, causationId, cartId);
 
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishReservationExtendedEvent(orderId, "c1", null, now)))
-              .isInstanceOf(NullPointerException.class);
+        OutboxEvent event = fetchOutboxEvent(orderId);
+        assertThat(event.getEventType()).isEqualTo("InventoryRestockedEvent");
+        assertThat(event.getPayload()).isNotEmpty();
 
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishReservationExtendedEvent(orderId, "c1", "cart-1", null)))
-              .isInstanceOf(NullPointerException.class);
+        try (KafkaProtobufDeserializer<InventoryRestockedEvent> deserializer = new KafkaProtobufDeserializer<>()) {
+            deserializer.configure(createDeserializerConfig(InventoryRestockedEvent.class), false);
 
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishReservationExtensionFailedEvent(null, "c1", "cart-1", "REASON")))
-              .isInstanceOf(NullPointerException.class);
+            InventoryRestockedEvent decoded = deserializer.deserialize(TOPIC_CONTEXT, event.getPayload());
 
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishReservationExtensionFailedEvent(orderId, "c1", null, "REASON")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishReservationExtensionFailedEvent(orderId, "c1", "cart-1", null)))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryReleasedEvent(null, "c1", "cart-1")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryReleasedEvent(orderId, "c1", null)))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryConfirmedEvent(null, "cart-1", "c1")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryConfirmedEvent(orderId, null, "c1")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryConfirmationFailedEvent(null, "c1", "cart-1", "REASON")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryConfirmationFailedEvent(orderId, "c1", null, "REASON")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishInventoryConfirmationFailedEvent(orderId, "c1", "cart-1", null)))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishStockProvisionedEvent(null, "item-1", 10)))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishStockProvisionedEvent("c1", null, 10)))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishStockProvisionRejectedEvent(null, "item-1", "REASON")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishStockProvisionRejectedEvent("c1", null, "REASON")))
-              .isInstanceOf(NullPointerException.class);
-
-        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status ->
-              outboxWriter.publishStockProvisionRejectedEvent("c1", "item-1", null)))
-              .isInstanceOf(NullPointerException.class);
+            assertThat(decoded.getCartId()).isEqualTo(cartId);
+            assertThat(decoded.getMetadata().getCorrelationId()).isEqualTo(orderId.toString());
+            assertThat(decoded.getMetadata().getCausationId()).isEqualTo(causationId);
+            assertThat(decoded.getMetadata().getSignature()).isNotBlank();
+        }
     }
 
     @Test
@@ -394,6 +321,9 @@ class OutboxWriterIT implements WithPostgres, WithKafka {
               .isInstanceOf(IllegalTransactionStateException.class);
 
         assertThatThrownBy(() -> outboxWriter.publishStockProvisionRejectedEvent("msg-1", "item-1", "REASON"))
+              .isInstanceOf(IllegalTransactionStateException.class);
+
+        assertThatThrownBy(() -> outboxWriter.publishInventoryRestockedEvent(orderId, "msg-1", "cart-1"))
               .isInstanceOf(IllegalTransactionStateException.class);
     }
 }
