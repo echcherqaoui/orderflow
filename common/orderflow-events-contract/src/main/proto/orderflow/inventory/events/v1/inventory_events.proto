@@ -48,8 +48,3 @@ message StockProvisionRejectedEvent {
   string item_name = 2;
   string reason = 3;
 }
-
-message InventoryRestockedEvent {
-  orderflow.common.v1.MessageMetadata metadata = 1;
-  string cart_id = 2;
-}
