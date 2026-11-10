@@ -121,7 +121,6 @@ public class PaymentService {
                               String paymentIntentId,
                               String reason,
                               String triggerEventId) {
-
         // Atomic Claim / Status Verification
         PrepareRefundResult prepareResult = persistenceService.prepareRefund(orderId);
 

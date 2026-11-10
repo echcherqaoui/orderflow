@@ -28,7 +28,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.echcherqaoui.orderflow.order.exception.code.OrderErrorCode.ORDER_NOT_FOUND;
@@ -36,11 +38,14 @@ import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.PA
 import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.RESERVATION_EXPIRED;
 import static com.echcherqaoui.orderflow.order.model.enums.OrderStatus.CANCELLED;
 import static com.echcherqaoui.orderflow.order.model.enums.OrderStatus.CANCELLING;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CANCEL_IN_PROGRESS;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CONFIRMING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.EXTENDING_INVENTORY;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.GRANTING_ENTITLEMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INITIALIZING_PAYMENT;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.INVENTORY_RESERVED;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.MANUAL_FINANCE_INTERVENTION;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.PAYMENT_SESSION_ACTIVE;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REFUNDED;
 import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.REVERSED;
@@ -56,6 +61,9 @@ public class OrderSagaService {
     private final SagaStepLogger sagaStepLogger;
     private final OutboxWriter outboxWriter;
     private final ApplicationEventPublisher eventPublisher;
+
+    private static final Set<SagaStep> PARALLEL_STEPS =
+          EnumSet.of(CANCEL_IN_PROGRESS, CANCEL_AWAITING_PARALLEL_RESPONSE);
 
     @lombok.NonNull
     private Order getOrder(UUID orderId) {
@@ -106,6 +114,96 @@ public class OrderSagaService {
 
         outboxWriter.publishReleaseInventoryCommand(orderId, triggerEventId, order.getCartId());
         eventPublisher.publishEvent(new OrderPaymentFailedEvent(orderId, reason));
+    }
+
+    private boolean isParallelCompensation(@lombok.NonNull Order order) {
+        return PARALLEL_STEPS.contains(order.getCurrentSagaStep());
+    }
+
+    private enum CompensationLeg { REFUND, INVENTORY }
+
+    private CompensationOutcome outcomeOf(Order order, CompensationLeg leg) {
+        return leg == CompensationLeg.REFUND ? order.getRefundStatus() : order.getInventoryReleaseStatus();
+    }
+
+    private void applyParallelOutcome(Order order,
+                                      CompensationLeg leg,
+                                      CompensationOutcome outcome,
+                                      String triggerEvent,
+                                      String triggerEventId,
+                                      Map<String, Object> details) {
+        if (outcomeOf(order, leg) != CompensationOutcome.PENDING) {
+            log.info(
+                  "Ignoring duplicate {} for order {}: {} leg already {}",
+                  triggerEvent,
+                  order.getId(),
+                  leg,
+                  outcomeOf(order, leg)
+            );
+            return;
+        }
+
+        if (leg == CompensationLeg.REFUND)
+            order.setRefundStatus(outcome);
+        else
+            order.setInventoryReleaseStatus(outcome);
+
+        SagaStep from = order.getCurrentSagaStep();
+        SagaStepLogger.StepLog legLog = outcome == CompensationOutcome.SUCCESS
+              ? SagaStepLogger.StepLog.completed(from, details)
+              : SagaStepLogger.StepLog.failed(from, details);
+
+        boolean otherLegPending = order.getRefundStatus() == CompensationOutcome.PENDING
+              || order.getInventoryReleaseStatus() == CompensationOutcome.PENDING;
+
+        if (otherLegPending)
+            awaitOtherLeg(order, legLog, triggerEvent, triggerEventId);
+        else
+            finalizeParallelCancellation(order, legLog, triggerEvent, triggerEventId);
+    }
+
+    private void awaitOtherLeg(@lombok.NonNull Order order,
+                               SagaStepLogger.StepLog legLog,
+                               String triggerEvent,
+                               String triggerEventId) {
+        order.setCurrentSagaStep(CANCEL_AWAITING_PARALLEL_RESPONSE);
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              order.getId(),
+              legLog,
+              SagaStepLogger.StepLog.started(CANCEL_AWAITING_PARALLEL_RESPONSE, Map.of()),
+              triggerEvent,
+              triggerEventId
+        );
+    }
+
+    private void finalizeParallelCancellation(@lombok.NonNull Order order,
+                                              SagaStepLogger.StepLog legLog,
+                                              String triggerEvent,
+                                              String triggerEventId) {
+        UUID orderId = order.getId();
+        String reason = order.getCancellationReason().name();
+        boolean refundFailed = order.getRefundStatus() == CompensationOutcome.FAILED;
+        SagaStep finalStep = refundFailed ? MANUAL_FINANCE_INTERVENTION : REVERSED;
+
+        order.setStatus(CANCELLED)
+              .setCurrentSagaStep(finalStep);
+        orderRepository.save(order);
+
+        sagaStepLogger.logTransition(
+              orderId,
+              legLog,
+              SagaStepLogger.StepLog.completed(finalStep, Map.of("reason", reason)),
+              triggerEvent,
+              triggerEventId
+        );
+
+        outboxWriter.publishOrderCancelledEvent(orderId, triggerEventId, reason);
+
+        eventPublisher.publishEvent(refundFailed
+              ? new PaymentRefundFailedOrderEvent(orderId, reason)
+              : new PaymentRefundedOrderEvent(orderId, reason));
     }
 
     // =========================================================================
@@ -356,14 +454,14 @@ public class OrderSagaService {
         if (isStaleOrDuplicate(order, REVERSING_INVENTORY, triggerEvent)) return;
 
         order.setStatus(CANCELLED)
-              .setCurrentSagaStep(SagaStep.REVERSED);
+              .setCurrentSagaStep(REVERSED);
 
         orderRepository.save(order);
 
         sagaStepLogger.logTransition(
               orderId,
               SagaStepLogger.StepLog.completed(REVERSING_INVENTORY, Map.of("cartId", cartId)),
-              SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("cartId", cartId)),
+              SagaStepLogger.StepLog.completed(REVERSED, Map.of("cartId", cartId)),
               triggerEvent,
               triggerEventId
         );
@@ -389,7 +487,7 @@ public class OrderSagaService {
         sagaStepLogger.logTransition(
               orderId,
               SagaStepLogger.StepLog.completed(REVERSING_PAYMENT, Map.of("paymentIntentId", paymentIntentId != null ? paymentIntentId : "N/A")),
-              SagaStepLogger.StepLog.completed(SagaStep.REVERSED, Map.of("reason", order.getCancellationReason().name())),
+              SagaStepLogger.StepLog.completed(REVERSED, Map.of("reason", order.getCancellationReason().name())),
               triggerEvent,
               triggerEventId
         );
@@ -405,6 +503,20 @@ public class OrderSagaService {
         String triggerEvent = "PaymentRefundedEvent";
         Order order = getOrder(orderId);
 
+        // Parallel compensation (entitlement failure): record the refund leg and join
+        if (isParallelCompensation(order)) {
+            applyParallelOutcome(
+                  order,
+                  CompensationLeg.REFUND,
+                  CompensationOutcome.SUCCESS,
+                  triggerEvent,
+                  triggerEventId,
+                  Map.of("paymentIntentId", paymentIntentId)
+            );
+            return;
+        }
+
+        // Single-leg compensation (out-of-stock)
         if (isStaleOrDuplicate(order, REVERSING_PAYMENT, triggerEvent)) return;
 
         order.setStatus(CANCELLED)
@@ -432,6 +544,20 @@ public class OrderSagaService {
         String triggerEvent = "PaymentRefundFailedEvent";
         Order order = getOrder(orderId);
 
+        // Parallel compensation (entitlement failure)
+        if (isParallelCompensation(order)) {
+            applyParallelOutcome(
+                  order,
+                  CompensationLeg.REFUND,
+                  CompensationOutcome.FAILED,
+                  triggerEvent,
+                  triggerEventId,
+                  Map.of("paymentIntentId", paymentIntentId, "reason", reason)
+            );
+            return;
+        }
+
+        // Single-leg compensation (out-of-stock)
         if (isStaleOrDuplicate(order, REVERSING_PAYMENT, triggerEvent)) return;
 
         order.setStatus(OrderStatus.CANCELLED)
@@ -483,7 +609,6 @@ public class OrderSagaService {
     // =========================================================================
     // ENTITLEMENT FAILURE COMPENSATION (GRANTING_ENTITLEMENT -> CANCEL_IN_PROGRESS)
     // =========================================================================
-
     @Transactional
     public void handleEntitlementGrantFailed(@lombok.NonNull UUID orderId,
                                              @lombok.NonNull String reason,
@@ -497,14 +622,14 @@ public class OrderSagaService {
               .setCancellationReason(CancellationReason.ENTITLEMENT_FAILED)
               .setInventoryReleaseStatus(CompensationOutcome.PENDING)
               .setRefundStatus(CompensationOutcome.PENDING)
-              .setCurrentSagaStep(SagaStep.CANCEL_IN_PROGRESS);
+              .setCurrentSagaStep(CANCEL_IN_PROGRESS);
 
         orderRepository.save(order);
 
         sagaStepLogger.logTransition(
               orderId,
               SagaStepLogger.StepLog.failed(GRANTING_ENTITLEMENT, Map.of("reason", reason)),
-              SagaStepLogger.StepLog.started(SagaStep.CANCEL_IN_PROGRESS, Map.of("reason", reason)),
+              SagaStepLogger.StepLog.started(CANCEL_IN_PROGRESS, Map.of("reason", reason)),
               triggerEvent,
               triggerEventId
         );
@@ -513,5 +638,32 @@ public class OrderSagaService {
         outboxWriter.publishRestockInventoryCommand(orderId, triggerEventId, order.getCartId());
 
         eventPublisher.publishEvent(new OrderProvisioningFailedEvent(orderId, reason));
+    }
+
+    @Transactional
+    public void handleInventoryRestocked(@lombok.NonNull UUID orderId,
+                                         @lombok.NonNull String cartId,
+                                         @lombok.NonNull String triggerEventId) {
+        String triggerEvent = "InventoryRestockedEvent";
+        Order order = getOrder(orderId);
+
+        if (!isParallelCompensation(order)) {
+            log.info(
+                  "Ignoring duplicate or stale {} for order {}: current step={}",
+                  triggerEvent,
+                  orderId,
+                  order.getCurrentSagaStep()
+            );
+            return;
+        }
+
+        applyParallelOutcome(
+              order,
+              CompensationLeg.INVENTORY,
+              CompensationOutcome.SUCCESS,
+              triggerEvent,
+              triggerEventId,
+              Map.of("cartId", cartId)
+        );
     }
 }
