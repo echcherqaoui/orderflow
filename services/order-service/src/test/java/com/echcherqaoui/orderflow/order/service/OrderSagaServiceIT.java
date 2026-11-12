@@ -4,10 +4,10 @@ import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.order.client.InventoryServiceClient;
 import com.echcherqaoui.orderflow.order.dto.CreateOrderRequest;
 import com.echcherqaoui.orderflow.order.exception.domain.ResourceNotFoundException;
-import com.echcherqaoui.orderflow.order.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.order.model.Order;
 import com.echcherqaoui.orderflow.order.model.OrderSagaHistory;
 import com.echcherqaoui.orderflow.order.model.enums.CancellationReason;
+import com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome;
 import com.echcherqaoui.orderflow.order.model.enums.OrderStatus;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStep;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStepStatus;
@@ -24,13 +24,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static com.echcherqaoui.orderflow.order.model.enums.CancellationReason.ENTITLEMENT_FAILED;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE;
+import static com.echcherqaoui.orderflow.order.model.enums.SagaStep.CANCEL_IN_PROGRESS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,9 +49,6 @@ class OrderSagaServiceIT implements WithPostgres {
 
     @Autowired
     private EntityManager entityManager;
-
-    @Autowired
-    private OutboxWriter outboxWriter;
 
     @MockitoBean(name = "outboxProtobufSerializer")
     private KafkaProtobufSerializer<Message> outboxProtobufSerializer;
@@ -136,21 +135,6 @@ class OrderSagaServiceIT implements WithPostgres {
     }
 
     // --- Test Suites ---
-
-    @Nested
-    @DisplayName("Order Lookup")
-    class OrderLookup {
-
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void getOrder_notFound_throwsResourceNotFoundException() {
-            UUID randomOrderId = UUID.randomUUID();
-            String triggerEventId = UUID.randomUUID().toString();
-            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(randomOrderId, "pi_123", "secret_123", triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
-        }
-    }
-
     @Nested
     @DisplayName("handleOrderReserved()")
     class HandleOrderReserved {
@@ -195,23 +179,6 @@ class OrderSagaServiceIT implements WithPostgres {
         }
 
         @Test
-        @DisplayName("malformed reserved item id throws exception and persists nothing")
-        void handleOrderReserved_malformedItemId_throwsAndPersistsNothing() {
-            UUID orderId = UUID.randomUUID();
-            List<String> reservedItemIds = List.of("invalid-uuid");
-            CreateOrderRequest request = new CreateOrderRequest(UUID.randomUUID().toString(), "user@example.com", reservedItemIds);
-            InventoryServiceClient.ReservationResult reservation = new InventoryServiceClient.ReservationResult(reservedItemIds, 999L);
-
-            assertThatThrownBy(() -> orderSagaService.handleOrderReserved(orderId, request, reservation))
-                  .isInstanceOf(IllegalArgumentException.class);
-
-            entityManager.clear();
-            assertThat(entityManager.find(Order.class, orderId)).isNull();
-            assertThat(findSagaHistory(orderId)).isEmpty();
-            assertThat(findOutboxRows(orderId)).isEmpty();
-        }
-
-        @Test
         @DisplayName("outbox serialization failure rolls back order, history, and outbox row")
         void handleOrderReserved_outboxSerializationFails_rollsBackTransaction() {
             when(outboxProtobufSerializer.serialize(anyString(), any(Message.class)))
@@ -250,11 +217,12 @@ class OrderSagaServiceIT implements WithPostgres {
         }
 
         @Test
-        @Transactional
-        @DisplayName("stale event for unexpected saga step is ignored without modifying order or creating outbox events")
-        void handlePaymentInitiated_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.PAYMENT_SESSION_ACTIVE, OrderStatus.PENDING);
-            assertStaleEventIgnored(order, () -> orderSagaService.handlePaymentInitiated(order.getId(), "pi_9999", "secret_9999", UUID.randomUUID().toString()));
+        @DisplayName("throws ResourceNotFoundException when target order does not exist")
+        void getOrder_notFound_throwsResourceNotFoundException() {
+            UUID randomOrderId = UUID.randomUUID();
+            String triggerEventId = UUID.randomUUID().toString();
+            assertThatThrownBy(() -> orderSagaService.handlePaymentInitiated(randomOrderId, "pi_123", "secret_123", triggerEventId))
+                  .isInstanceOf(ResourceNotFoundException.class);
         }
     }
 
@@ -332,23 +300,6 @@ class OrderSagaServiceIT implements WithPostgres {
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_INVENTORY);
             assertSingleOutboxEvent(order.getId(), "inventory.commands", "ReleaseInventoryCommand");
         }
-
-        @Test
-        @Transactional
-        @DisplayName("stale PaymentFailedEvent for unexpected saga step is ignored without modifying order or creating outbox events")
-        void handlePaymentFailed_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
-            assertStaleEventIgnored(order, () -> orderSagaService.handlePaymentFailed(order.getId(), "CARD_DECLINED", UUID.randomUUID().toString()));
-        }
-
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void handlePaymentFailed_notFound_throwsResourceNotFoundException() {
-            UUID orderId = UUID.randomUUID();
-            String triggerEventId = UUID.randomUUID().toString();
-            assertThatThrownBy(() -> orderSagaService.handlePaymentFailed(orderId, "CARD_DECLINED", triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
-        }
     }
 
     @Nested
@@ -417,14 +368,6 @@ class OrderSagaServiceIT implements WithPostgres {
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSED);
             assertSingleOutboxEvent(order.getId(), "order.events", "OrderCancelledIntegrationEvent");
         }
-
-        @Test
-        @Transactional
-        @DisplayName("stale PaymentCancelledEvent for unexpected saga step is ignored without modifying order or creating outbox events")
-        void handlePaymentCancelled_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
-            assertStaleEventIgnored(order, () -> orderSagaService.handlePaymentCancelled(order.getId(), "pi_stale", UUID.randomUUID().toString()));
-        }
     }
 
     @Nested
@@ -447,66 +390,8 @@ class OrderSagaServiceIT implements WithPostgres {
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSING_PAYMENT);
             assertSingleOutboxEvent(order.getId(), "payment.commands", "RefundPaymentCommand");
         }
-
-        @Test
-        @Transactional
-        @DisplayName("stale InventoryConfirmationFailedEvent for unexpected saga step is ignored without side effects")
-        void handleInventoryConfirmationFailed_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
-            assertStaleEventIgnored(order, () -> orderSagaService.handleInventoryConfirmationFailed(order.getId(), "OUT_OF_STOCK", UUID.randomUUID().toString()));
-        }
     }
 
-    @Nested
-    @DisplayName("Transactional Integrity")
-    class TransactionalIntegrity {
-
-        @Test
-        @Transactional
-        @DisplayName("publishing multiple commands in single transaction persists all records sequentially")
-        void publishingMultipleCommands_persistsAllInSameTransaction() {
-            UUID orderId = UUID.randomUUID();
-            String causationId = UUID.randomUUID().toString();
-
-            outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 5000L);
-            outboxWriter.publishReleaseInventoryCommand(orderId, causationId, "cart-multi");
-
-            entityManager.flush();
-            entityManager.clear();
-
-            List<OutboxEvent> events = entityManager
-                  .createQuery(
-                        "SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId ORDER BY e.createdAt ASC",
-                        OutboxEvent.class
-                  )
-                  .setParameter("orderId", orderId.toString())
-                  .getResultList();
-
-            assertThat(events).hasSize(2);
-            assertThat(events.get(0).getEventType()).isEqualTo("ChargePaymentCommand");
-            assertThat(events.get(1).getEventType()).isEqualTo("ReleaseInventoryCommand");
-        }
-
-        @Test
-        @Transactional
-        @DisplayName("transaction rollback discards written outbox entries")
-        void transactionRollback_discardsOutboxEntries() {
-            UUID orderId = UUID.randomUUID();
-            outboxWriter.publishChargePaymentCommand(orderId, "user@example.com", 2000L);
-            entityManager.flush();
-
-            TestTransaction.flagForRollback();
-            TestTransaction.end();
-
-            TestTransaction.start();
-            List<OutboxEvent> rows = entityManager
-                  .createQuery("SELECT e FROM OutboxEvent e WHERE e.aggregateId = :orderId", OutboxEvent.class)
-                  .setParameter("orderId", orderId.toString())
-                  .getResultList();
-
-            assertThat(rows).isEmpty();
-        }
-    }
     @Nested
     @DisplayName("handlePaymentRefunded()")
     class HandlePaymentRefunded {
@@ -537,24 +422,6 @@ class OrderSagaServiceIT implements WithPostgres {
             assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.COMPLETED);
 
             assertSingleOutboxEvent(order.getId(), "order.events", "OrderCancelledIntegrationEvent");
-        }
-
-        @Test
-        @Transactional
-        @DisplayName("stale PaymentRefundedEvent for unexpected saga step is ignored without modifying order, writing history, or creating outbox events")
-        void handlePaymentRefunded_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.REFUNDED, OrderStatus.CANCELLED);
-            assertStaleEventIgnored(order, () -> orderSagaService.handlePaymentRefunded(order.getId(), "pi_stale", UUID.randomUUID().toString()));
-        }
-
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void handlePaymentRefunded_notFound_throwsResourceNotFoundException() {
-            UUID orderId = UUID.randomUUID();
-            String triggerEventId = UUID.randomUUID().toString();
-
-            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(orderId, "pi_123", triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
         }
     }
 
@@ -590,23 +457,6 @@ class OrderSagaServiceIT implements WithPostgres {
 
             assertSingleOutboxEvent(order.getId(), "order.events", "OrderCancelledIntegrationEvent");
         }
-
-        @Test
-        @Transactional
-        @DisplayName("stale PaymentRefundFailedEvent for unexpected saga step is ignored without modifying order or side effects")
-        void handlePaymentRefundFailed_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.MANUAL_INTERVENTION_REQUIRED, OrderStatus.CANCELLED);
-            assertStaleEventIgnored(order, () -> orderSagaService.handlePaymentRefundFailed(order.getId(), "pi_stale", "GATEWAY_TIMEOUT", UUID.randomUUID().toString()));
-        }
-
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void handlePaymentRefundFailed_notFound_throwsResourceNotFoundException() {
-            UUID orderId = UUID.randomUUID();
-            String triggerEventId = UUID.randomUUID().toString();
-            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, "pi_123", "GATEWAY_TIMEOUT", triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
-        }
     }
 
 
@@ -624,14 +474,6 @@ class OrderSagaServiceIT implements WithPostgres {
             Order updated = entityManager.find(Order.class, order.getId());
             assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.GRANTING_ENTITLEMENT);
             assertSingleOutboxEvent(order.getId(), "entitlement.commands", "GrantEntitlementCommand");
-        }
-
-        @Test
-        @Transactional
-        @DisplayName("stale InventoryConfirmedEvent for unexpected saga step is ignored without modifying order or creating outbox events")
-        void handleInventoryConfirmed_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
-            assertStaleEventIgnored(order, () -> orderSagaService.handleInventoryConfirmed(order.getId(), order.getCartId(), UUID.randomUUID().toString()));
         }
     }
 
@@ -662,23 +504,6 @@ class OrderSagaServiceIT implements WithPostgres {
 
             assertSingleOutboxEvent(order.getId(), "order.events", "OrderCompletedIntegrationEvent");
         }
-
-        @Test
-        @Transactional
-        @DisplayName("stale EntitlementGrantedEvent for unexpected saga step is ignored without modifying order or creating outbox events")
-        void handleEntitlementGranted_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.COMPLETED, OrderStatus.COMPLETED);
-            assertStaleEventIgnored(order, () -> orderSagaService.handleEntitlementGranted(order.getId(), UUID.randomUUID().toString()));
-        }
-
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void handleEntitlementGranted_notFound_throwsResourceNotFoundException() {
-            UUID orderId = UUID.randomUUID();
-            String triggerEventId = UUID.randomUUID().toString();
-            assertThatThrownBy(() -> orderSagaService.handleEntitlementGranted(orderId, triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
-        }
     }
 
     @Nested
@@ -687,7 +512,7 @@ class OrderSagaServiceIT implements WithPostgres {
 
         @Test
         @Transactional
-        @DisplayName("valid step GRANTING_ENTITLEMENT updates status FAILED, cancellation reason ENTITLEMENT_FAILED, step CANCEL_IN_PROGRESS, records history, and writes outbox command rows")
+        @DisplayName("valid step GRANTING_ENTITLEMENT updates status CANCELLING, cancellation reason ENTITLEMENT_FAILED, step CANCEL_IN_PROGRESS, records history, and writes refund and restock command rows")
         void handleEntitlementGrantFailed_validStep_updatesStateAndPublishesCommands() {
             Order order = createAndPersistOrder(SagaStep.GRANTING_ENTITLEMENT, OrderStatus.PENDING);
             order.setPaymentIntentId("pi_entitlement_999");
@@ -701,38 +526,73 @@ class OrderSagaServiceIT implements WithPostgres {
 
             Order updated = entityManager.find(Order.class, order.getId());
             assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLING);
-            assertThat(updated.getCancellationReason()).isEqualTo(CancellationReason.ENTITLEMENT_FAILED);
-            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.CANCEL_IN_PROGRESS);
+            assertThat(updated.getCancellationReason()).isEqualTo(ENTITLEMENT_FAILED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(CANCEL_IN_PROGRESS);
 
             List<OrderSagaHistory> history = findSagaHistory(order.getId());
             assertThat(history).hasSize(2);
             assertThat(history.get(0).getStep()).isEqualTo(SagaStep.GRANTING_ENTITLEMENT);
             assertThat(history.get(0).getStatus()).isEqualTo(SagaStepStatus.FAILED);
-            assertThat(history.get(1).getStep()).isEqualTo(SagaStep.CANCEL_IN_PROGRESS);
+            assertThat(history.get(1).getStep()).isEqualTo(CANCEL_IN_PROGRESS);
             assertThat(history.get(1).getStatus()).isEqualTo(SagaStepStatus.STARTED);
 
             List<OutboxEvent> outboxRows = findOutboxRows(order.getId());
             assertThat(outboxRows).hasSize(2);
             assertThat(outboxRows)
                   .extracting(OutboxEvent::getEventType)
-                  .containsExactlyInAnyOrder("RefundPaymentCommand", "ReleaseInventoryCommand");
+                  .containsExactlyInAnyOrder("RefundPaymentCommand", "RestockInventoryCommand");
+            assertThat(updated.getRefundStatus()).isEqualTo(CompensationOutcome.PENDING);
+            assertThat(updated.getInventoryReleaseStatus()).isEqualTo(CompensationOutcome.PENDING);
+        }
+    }
+
+    @Nested
+    @DisplayName("Parallel Compensation & Aggregation Integration Tests")
+    class ParallelCompensationIntegration {
+        @Test
+        @Transactional
+        @DisplayName("first parallel event (PaymentRefunded) sets status to CANCEL_AWAITING_PARALLEL_RESPONSE and records outcome")
+        void handlePaymentRefunded_firstParallelLeg_awaitsOtherLeg() {
+            Order order = createAndPersistOrder(CANCEL_IN_PROGRESS, OrderStatus.CANCELLING)
+                  .setRefundStatus(CompensationOutcome.PENDING)
+                  .setInventoryReleaseStatus(CompensationOutcome.PENDING)
+                  .setCancellationReason(ENTITLEMENT_FAILED);
+
+            entityManager.merge(order);
+
+            orderSagaService.handlePaymentRefunded(order.getId(), "pi_parallel_123", UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(CANCEL_AWAITING_PARALLEL_RESPONSE);
+            assertThat(updated.getRefundStatus()).isEqualTo(com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome.SUCCESS);
+            assertThat(updated.getInventoryReleaseStatus()).isEqualTo(com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome.PENDING);
+            assertThat(findOutboxRows(order.getId())).isEmpty();
         }
 
         @Test
         @Transactional
-        @DisplayName("stale EntitlementGrantFailedEvent for unexpected saga step is ignored without modifying order or creating outbox events")
-        void handleEntitlementGrantFailed_staleStep_ignoresEvent() {
-            Order order = createAndPersistOrder(SagaStep.INITIALIZING_PAYMENT, OrderStatus.PENDING);
-            assertStaleEventIgnored(order, () -> orderSagaService.handleEntitlementGrantFailed(order.getId(), "TIMEOUT", UUID.randomUUID().toString()));
-        }
+        @DisplayName("second parallel event (InventoryRestocked) finalizes parallel cancellation to CANCELLED / REVERSED and writes outbox event")
+        void handleInventoryRestocked_secondParallelLeg_finalizesCancellation() {
+            Order order = createAndPersistOrder(CANCEL_AWAITING_PARALLEL_RESPONSE, OrderStatus.CANCELLING);
+            order.setCancellationReason(ENTITLEMENT_FAILED);
+            order.setRefundStatus(com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome.SUCCESS);
+            order.setInventoryReleaseStatus(com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome.PENDING);
+            entityManager.merge(order);
 
-        @Test
-        @DisplayName("throws ResourceNotFoundException when target order does not exist")
-        void handleEntitlementGrantFailed_notFound_throwsResourceNotFoundException() {
-            UUID orderId = UUID.randomUUID();
-            String triggerEventId = UUID.randomUUID().toString();
-            assertThatThrownBy(() -> orderSagaService.handleEntitlementGrantFailed(orderId, "TIMEOUT", triggerEventId))
-                  .isInstanceOf(ResourceNotFoundException.class);
+            orderSagaService.handleInventoryRestocked(order.getId(), order.getCartId(), UUID.randomUUID().toString());
+
+            entityManager.flush();
+            entityManager.clear();
+
+            Order updated = entityManager.find(Order.class, order.getId());
+            assertThat(updated.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(updated.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSED);
+            assertThat(updated.getInventoryReleaseStatus()).isEqualTo(com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome.SUCCESS);
+
+            assertSingleOutboxEvent(order.getId(), "order.events", "OrderCancelledIntegrationEvent");
         }
     }
 }

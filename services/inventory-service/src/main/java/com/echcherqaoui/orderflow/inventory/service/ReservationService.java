@@ -66,7 +66,6 @@ public class ReservationService {
         return itemIds.size();
     }
 
-
     /**
      * Idempotent on cartId. All-or-nothing across the full item list in a
      * single DB transaction: one missing/out-of-stock item aborts everything.

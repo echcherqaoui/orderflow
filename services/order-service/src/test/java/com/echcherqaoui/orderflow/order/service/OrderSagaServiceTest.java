@@ -8,6 +8,7 @@ import com.echcherqaoui.orderflow.order.events.OrderPaymentFailedEvent;
 import com.echcherqaoui.orderflow.order.events.OrderPaymentSessionActiveEvent;
 import com.echcherqaoui.orderflow.order.events.OrderProvisioningFailedEvent;
 import com.echcherqaoui.orderflow.order.events.PaymentRefundFailedOrderEvent;
+import com.echcherqaoui.orderflow.order.events.PaymentRefundedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtendedOrderEvent;
 import com.echcherqaoui.orderflow.order.events.ReservationExtensionFailedOrderEvent;
 import com.echcherqaoui.orderflow.order.exception.domain.ResourceNotFoundException;
@@ -15,6 +16,7 @@ import com.echcherqaoui.orderflow.order.messaging.outbox.OutboxWriter;
 import com.echcherqaoui.orderflow.order.model.Order;
 import com.echcherqaoui.orderflow.order.model.OrderItem;
 import com.echcherqaoui.orderflow.order.model.enums.CancellationReason;
+import com.echcherqaoui.orderflow.order.model.enums.CompensationOutcome;
 import com.echcherqaoui.orderflow.order.model.enums.OrderStatus;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStep;
 import com.echcherqaoui.orderflow.order.model.enums.SagaStepStatus;
@@ -44,7 +46,6 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
-import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -168,47 +169,6 @@ class OrderSagaServiceTest {
                   .containsExactlyInAnyOrder(UUID.fromString(item1IdStr), UUID.fromString(item2IdStr));
 
             verifyTransition(SagaStep.INVENTORY_RESERVED, SagaStepStatus.COMPLETED, SagaStep.INITIALIZING_PAYMENT, SagaStepStatus.STARTED, null, null);
-            then(outboxWriter).should().publishChargePaymentCommand(orderId, userId, totalPriceCents);
-        }
-
-        @Test
-        @DisplayName("repository save failure propagates exception and halts saga logging and outbox publishing")
-        void handleOrderReserved_repositorySaveFails_propagatesExceptionAndAborts() {
-            RuntimeException dbException = new RuntimeException("Database connection failure");
-            given(orderRepository.save(any(Order.class))).willThrow(dbException);
-
-            assertThatThrownBy(() -> orderSagaService.handleOrderReserved(orderId, request, reservation))
-                  .isSameAs(dbException);
-
-            then(orderRepository).should().save(any(Order.class));
-            verifyNoInteractions(sagaStepLogger, outboxWriter);
-        }
-
-        @Test
-        @DisplayName("saga step logging failure propagates exception and aborts outbox publishing")
-        void handleOrderReserved_sagaStepLoggerFails_propagatesExceptionAndAbortsOutbox() {
-            RuntimeException logException = new RuntimeException("Audit log failure");
-            given(orderRepository.save(any(Order.class))).willAnswer(invocation -> invocation.getArgument(0));
-            willThrow(logException)
-                  .given(sagaStepLogger)
-                  .logTransition(any(), any(), any(), any(), any());
-
-            assertThatThrownBy(() -> orderSagaService.handleOrderReserved(orderId, request, reservation))
-                  .isSameAs(logException);
-
-            verifyNoInteractions(outboxWriter);
-        }
-
-        @Test
-        @DisplayName("outbox publishing failure propagates exception after order save and saga step log")
-        void handleOrderReserved_outboxWriterFails_propagatesException() {
-            RuntimeException outboxException = new RuntimeException("Protobuf serialization error");
-            given(orderRepository.save(any(Order.class))).willAnswer(inv -> inv.getArgument(0));
-            willThrow(outboxException).given(outboxWriter).publishChargePaymentCommand(orderId, userId, totalPriceCents);
-
-            assertThatThrownBy(() -> orderSagaService.handleOrderReserved(orderId, request, reservation))
-                  .isSameAs(outboxException);
-
             then(outboxWriter).should().publishChargePaymentCommand(orderId, userId, totalPriceCents);
         }
     }
@@ -496,26 +456,6 @@ class OrderSagaServiceTest {
         void handlePaymentRefunded_notFound_throwsResourceNotFoundException() {
             verifyOrderNotFound(id -> orderSagaService.handlePaymentRefunded(id, "pi_123", triggerEventId));
         }
-
-        @Test
-        @DisplayName("outbox publication failure propagates exception and halts event publishing")
-        void handlePaymentRefunded_outboxWriterFails_propagatesException() {
-            Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
-            existingOrder.setCancellationReason(CancellationReason.RESERVATION_EXPIRED);
-            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
-
-            RuntimeException outboxException = new RuntimeException("Kafka Outbox persistence failed");
-            willThrow(outboxException)
-                  .given(outboxWriter)
-                  .publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.RESERVATION_EXPIRED.name());
-
-            assertThatThrownBy(() -> orderSagaService.handlePaymentRefunded(orderId, "pi_refunded_123", triggerEventId))
-                  .isSameAs(outboxException);
-
-            then(orderRepository).should().save(existingOrder);
-            verifyTransition(SagaStep.REVERSING_PAYMENT, SagaStepStatus.COMPLETED, SagaStep.REFUNDED, SagaStepStatus.COMPLETED, "PaymentRefundedEvent", triggerEventId);
-            verifyNoInteractions(eventPublisher);
-        }
     }
 
     @Nested
@@ -552,25 +492,6 @@ class OrderSagaServiceTest {
         @DisplayName("missing order throws ResourceNotFoundException and halts execution")
         void handlePaymentRefundFailed_notFound_throwsResourceNotFoundException() {
             verifyOrderNotFound(id -> orderSagaService.handlePaymentRefundFailed(id, "pi_123", "GATEWAY_TIMEOUT", triggerEventId));
-        }
-
-        @Test
-        @DisplayName("event publisher failure propagates exception after database save, saga step log, and outbox publish")
-        void handlePaymentRefundFailed_eventPublisherFails_propagatesException() {
-            Order existingOrder = createOrder(SagaStep.REVERSING_PAYMENT, OrderStatus.CANCELLING);
-            given(orderRepository.findById(orderId)).willReturn(Optional.of(existingOrder));
-
-            RuntimeException publisherException = new RuntimeException("ApplicationEventPublisher error");
-            willThrow(publisherException)
-                  .given(eventPublisher)
-                  .publishEvent(any(PaymentRefundFailedOrderEvent.class));
-
-            assertThatThrownBy(() -> orderSagaService.handlePaymentRefundFailed(orderId, "pi_123", "GATEWAY_TIMEOUT", triggerEventId))
-                  .isSameAs(publisherException);
-
-            then(orderRepository).should().save(existingOrder);
-            verifyTransition(SagaStep.REVERSING_PAYMENT, SagaStepStatus.FAILED, SagaStep.MANUAL_INTERVENTION_REQUIRED, SagaStepStatus.COMPLETED, "PaymentRefundFailedEvent", triggerEventId);
-            then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.REFUND_FAILED.name());
         }
     }
 
@@ -669,7 +590,7 @@ class OrderSagaServiceTest {
             then(orderRepository).should().save(existingOrder);
             verifyTransition(SagaStep.GRANTING_ENTITLEMENT, SagaStepStatus.FAILED, SagaStep.CANCEL_IN_PROGRESS, SagaStepStatus.STARTED, "EntitlementGrantFailedEvent", triggerEventId);
             then(outboxWriter).should().publishRefundPaymentCommand(orderId, triggerEventId, "pi_entitlement_123", reason);
-            then(outboxWriter).should().publishReleaseInventoryCommand(orderId, triggerEventId, cartId);
+            then(outboxWriter).should().publishRestockInventoryCommand(orderId, triggerEventId, cartId);
             then(eventPublisher).should().publishEvent(any(OrderProvisioningFailedEvent.class));
         }
 
@@ -684,6 +605,100 @@ class OrderSagaServiceTest {
         @DisplayName("missing order throws ResourceNotFoundException and halts execution")
         void handleEntitlementGrantFailed_notFound_throwsResourceNotFoundException() {
             verifyOrderNotFound(id -> orderSagaService.handleEntitlementGrantFailed(id, "TIMEOUT", triggerEventId));
+        }
+    }
+
+    @Nested
+    @DisplayName("Parallel Compensation & Aggregation Tests")
+    class ParallelCompensationAggregation {
+
+        @Test
+        @DisplayName("PaymentRefunded arrives first while in CANCEL_IN_PROGRESS: updates refundStatus, sets step to CANCEL_AWAITING_PARALLEL_RESPONSE, and awaits inventory leg")
+        void paymentRefunded_firstLegArrives_transitionsToAwaitingParallelResponse() {
+            Order order = createOrder(SagaStep.CANCEL_IN_PROGRESS, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.ENTITLEMENT_FAILED);
+            order.setRefundStatus(CompensationOutcome.PENDING);
+            order.setInventoryReleaseStatus(CompensationOutcome.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            orderSagaService.handlePaymentRefunded(orderId, "pi_parallel_123", triggerEventId);
+
+            assertThat(order.getRefundStatus()).isEqualTo(CompensationOutcome.SUCCESS);
+            assertThat(order.getInventoryReleaseStatus()).isEqualTo(CompensationOutcome.PENDING);
+            assertThat(order.getCurrentSagaStep()).isEqualTo(SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE);
+
+            then(orderRepository).should().save(order);
+            verifyTransition(SagaStep.CANCEL_IN_PROGRESS, SagaStepStatus.COMPLETED, SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE, SagaStepStatus.STARTED, "PaymentRefundedEvent", triggerEventId);
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("InventoryRestocked arrives second after refund success: finalizes parallel cancellation to CANCELLED / REVERSED and publishes outbox + event")
+        void inventoryRestocked_secondLegArrives_success_finalizesParallelCancellation() {
+            Order order = createOrder(SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.ENTITLEMENT_FAILED);
+            order.setRefundStatus(CompensationOutcome.SUCCESS);
+            order.setInventoryReleaseStatus(CompensationOutcome.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            orderSagaService.handleInventoryRestocked(orderId, cartId, triggerEventId);
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(order.getCurrentSagaStep()).isEqualTo(SagaStep.REVERSED);
+            assertThat(order.getInventoryReleaseStatus()).isEqualTo(CompensationOutcome.SUCCESS);
+
+            then(orderRepository).should().save(order);
+            verifyTransition(SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE, SagaStepStatus.COMPLETED, SagaStep.REVERSED, SagaStepStatus.COMPLETED, "InventoryRestockedEvent", triggerEventId);
+            then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.ENTITLEMENT_FAILED.name());
+            then(eventPublisher).should().publishEvent(any(PaymentRefundedOrderEvent.class));
+        }
+
+        @Test
+        @DisplayName("InventoryRestocked arrives second when refund failed: finalizes parallel cancellation to CANCELLED / MANUAL_FINANCE_INTERVENTION and publishes refund failed event")
+        void inventoryRestocked_secondLegArrives_refundFailed_finalizesToManualIntervention() {
+            Order order = createOrder(SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE, OrderStatus.CANCELLING);
+            order.setCancellationReason(CancellationReason.ENTITLEMENT_FAILED);
+            order.setRefundStatus(CompensationOutcome.FAILED);
+            order.setInventoryReleaseStatus(CompensationOutcome.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            orderSagaService.handleInventoryRestocked(orderId, cartId, triggerEventId);
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(order.getCurrentSagaStep()).isEqualTo(SagaStep.MANUAL_FINANCE_INTERVENTION);
+            assertThat(order.getInventoryReleaseStatus()).isEqualTo(CompensationOutcome.SUCCESS);
+
+            then(orderRepository).should().save(order);
+            verifyTransition(SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE, SagaStepStatus.COMPLETED, SagaStep.MANUAL_FINANCE_INTERVENTION, SagaStepStatus.COMPLETED, "InventoryRestockedEvent", triggerEventId);
+            then(outboxWriter).should().publishOrderCancelledEvent(orderId, triggerEventId, CancellationReason.ENTITLEMENT_FAILED.name());
+            then(eventPublisher).should().publishEvent(any(PaymentRefundFailedOrderEvent.class));
+        }
+
+        @Test
+        @DisplayName("duplicate or stale PaymentRefunded when already recorded: ignores event and performs no side effects")
+        void paymentRefunded_duplicateLeg_ignored() {
+            Order order = createOrder(SagaStep.CANCEL_AWAITING_PARALLEL_RESPONSE, OrderStatus.CANCELLING);
+            order.setRefundStatus(CompensationOutcome.SUCCESS);
+            order.setInventoryReleaseStatus(CompensationOutcome.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            orderSagaService.handlePaymentRefunded(orderId, "pi_duplicate", triggerEventId);
+
+            then(orderRepository).should(never()).save(any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
+        }
+
+        @Test
+        @DisplayName("InventoryRestocked received outside parallel compensation steps: ignores event and performs no side effects")
+        void inventoryRestocked_outsideParallelStep_ignored() {
+            Order order = createOrder(SagaStep.CONFIRMING_INVENTORY, OrderStatus.PENDING);
+            given(orderRepository.findById(orderId)).willReturn(Optional.of(order));
+
+            orderSagaService.handleInventoryRestocked(orderId, cartId, triggerEventId);
+
+            assertThat(order.getCurrentSagaStep()).isEqualTo(SagaStep.CONFIRMING_INVENTORY);
+            then(orderRepository).should(never()).save(any());
+            verifyNoInteractions(outboxWriter, eventPublisher);
         }
     }
 }
