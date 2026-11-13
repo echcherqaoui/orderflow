@@ -10,6 +10,7 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 * **Framework:** Spring Boot `4.1.1` | Spring Cloud `2025.1.3` | Spring gRPC `1.0.3`
 * **Build System:** Apache Maven (Root Multi-Module POM)
 * **Database & Migrations:** PostgreSQL 17 | Flyway
+* **Service Discovery & Routing:** Netflix Eureka | Spring Cloud Gateway (WebFlux)
 * **Event Streaming & Schemas:** Apache Kafka (KRaft) | Confluent Schema Registry `7.7.7` | Protobuf `3.25.5`
 * **Change Data Capture:** Debezium PostgreSQL Connector `3.1.2` (Outbox Pattern)
 * **Infrastructure as Code:** Terraform `1.14` (`Mongey/kafka` provider `0.12.1`)
@@ -66,10 +67,13 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 
 | Service | REST Port | gRPC Port | Database | Primary Responsibilities |
 | :--- |:----------|:----------| :--- | :--- |
-| **Inventory Service** | `8082` | `9082` | `inventory_db` | Item catalog management, pessimistic stock reservation engine, reservation extension & release lifecycle, background stock sweeper, gRPC endpoints |
-| **Order Service** | `8084` | `----` | `order_db` | Order orchestration, end-to-end Saga state machine, gRPC inventory calls, Protobuf event handlers with HMAC signature verification, transactional outbox writer, SSE real-time client state streaming |
+| **Discovery Service** | `8761` | `----` | `None` | Netflix Eureka server registry for dynamic service discovery and endpoint lookup |
+| **Inventory Service** | `8082` | `9082` | `inventory_db` | Item catalog management, pessimistic stock reservation engine, reservation extension & release lifecycle, background stock sweeper, gRPC endpoints with Eureka metadata registration |
+| **Order Service** | `8084` | `----` | `order_db` | Order orchestration, end-to-end Saga state machine, gRPC inventory calls via Eureka lookup, Protobuf event handlers with HMAC signature verification, transactional outbox writer, SSE real-time client state streaming |
 | **Payment Service** | `8086` | `----` | `payment_db` | Payment intent creation, async payment charges, third-party gateway abstraction, HMAC signature generation in `MessageMetadata`, atomic outbox event publishing |
-| **Entitlement Service** | `8088` | `----` | `entitlement_db` | License-key ingestion, atomic key allocation (`FOR UPDATE SKIP LOCKED`), canonical `itemId` minting, transactional outbox publishing |---
+| **Entitlement Service** | `8088` | `----` | `entitlement_db` | License-key ingestion, atomic key allocation (`FOR UPDATE SKIP LOCKED`), canonical `itemId` minting, transactional outbox publishing |
+
+---
 
 ## 🔄 Checkout Saga Architecture & Lifecycle
 
@@ -88,6 +92,11 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 ---
 
 ## 🏬 Service Deep-Dives
+
+### Discovery Service
+Acts as the centralized registry for the microservices cluster:
+* **Netflix Eureka Server:** Listens for service heartbeats, registers dynamic IP addresses and instance IDs, and distributes instance metadata.
+
 
 ### Inventory Service
 Handles high-concurrency stock tracking and reservation management:

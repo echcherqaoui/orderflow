@@ -4,8 +4,15 @@ server:
 
 # ── Service Discovery ─────────────────────────────────────────
 eureka:
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${spring.application.instance_id:${random.value}}
+    metadata-map:
+      gRPC_port: ${INVENTORY_SERVICE_GRPC_PORT:9082}
+
   client:
-    enabled: false
+    service-url:
+      defaultZone: ${DISCOVERY_SERVICE_URL:http://localhost:8761/eureka/}
 
 # ── Spring Boot Core ──────────────────────────────────────────
 spring:
