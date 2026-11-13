@@ -1,6 +1,6 @@
 # Orderflow
 
-Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQL, Apache Kafka, Confluent Schema Registry, and Debezium Change Data Capture (CDC) via the Transactional Outbox Pattern.
+Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQL, Apache Kafka, Confluent Schema Registry, and Debezium Change Data Capture (CDC) via the Transactional Outbox Pattern, fronted by a Spring Cloud Gateway and integrated with Netflix Eureka for service discovery.
 
 ---
 
@@ -15,6 +15,7 @@ Event-driven microservices architecture utilizing Spring Boot 4, gRPC, PostgreSQ
 * **Change Data Capture:** Debezium PostgreSQL Connector `3.1.2` (Outbox Pattern)
 * **Infrastructure as Code:** Terraform `1.14` (`Mongey/kafka` provider `0.12.1`)
 * **Developer Tools:** pgAdmin 4 | Kafka UI
+
 ---
 
 ## Dependency Security Overrides
@@ -46,6 +47,9 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 │   ├── docker-compose.tools.yml     # pgAdmin, Kafka UI
 │   ├── init-db.sql                  # PostgreSQL database initialization script
 │   └── kafka-connect.Dockerfile     # Custom Debezium Kafka Connect image
+├── infrastructure/  
+│   ├── discovery-service/           # Netflix Eureka Service Discovery server
+│   └──  gateway-service/            # Spring Cloud Gateway (Reverse Proxy & Route Dispatcher)
 ├── services/
 │   ├── entitlement-service/         # Entitlement management microservice
 │   ├── inventory-service/           # Inventory stock, reservation lifecycle & sweeper
@@ -68,6 +72,7 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 | Service | REST Port | gRPC Port | Database | Primary Responsibilities |
 | :--- |:----------|:----------| :--- | :--- |
 | **Discovery Service** | `8761` | `----` | `None` | Netflix Eureka server registry for dynamic service discovery and endpoint lookup |
+| **Gateway Service** | `8080` | `----` | `None` | Spring Cloud Gateway routing layer, dynamic service resolution via Eureka, route filtering, and actuator security shielding |
 | **Inventory Service** | `8082` | `9082` | `inventory_db` | Item catalog management, pessimistic stock reservation engine, reservation extension & release lifecycle, background stock sweeper, gRPC endpoints with Eureka metadata registration |
 | **Order Service** | `8084` | `----` | `order_db` | Order orchestration, end-to-end Saga state machine, gRPC inventory calls via Eureka lookup, Protobuf event handlers with HMAC signature verification, transactional outbox writer, SSE real-time client state streaming |
 | **Payment Service** | `8086` | `----` | `payment_db` | Payment intent creation, async payment charges, third-party gateway abstraction, HMAC signature generation in `MessageMetadata`, atomic outbox event publishing |
@@ -78,10 +83,11 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 ## 🔄 Checkout Saga Architecture & Lifecycle
 
 ### Happy Path Workflow
-1. **Reserve Stock:** `Order Service` synchronously calls `Inventory Service` via gRPC to lock stock.
-2. **Initialize Payment:** `Order Service` requests `Payment Service` to create a payment intent/session.
-3. **Extend Reservation:** Once the payment session is initialized, `Order Service` commands `Inventory Service` to extend stock TTL for the active payment window.
-4. **Notify Client:** `Order Service` receives confirmation and pushes payment details to the client via SSE to complete payment.
+1. **Route Request:** Client sends requests to `Gateway Service`, which forwards traffic using load-balanced `lb://` URIs resolved via `Discovery Service`.
+2. **Reserve Stock:** `Order Service` queries Eureka metadata to resolve target gRPC ports and synchronously calls `Inventory Service` via gRPC to lock stock.
+3. **Initialize Payment:** `Order Service` requests `Payment Service` to create a payment intent/session.
+4. **Extend Reservation:** Once the payment session is initialized, `Order Service` commands `Inventory Service` to extend stock TTL for the active payment window.
+5. **Notify Client:** `Order Service` receives confirmation and pushes payment details to the client via SSE to complete payment.
 
 ### Compensating Flow (Failure / Cancellation)
 1. **Trigger:** Payment charge failure, gateway rejection, payment timeout, or explicit user cancellation.
@@ -97,6 +103,10 @@ The root `pom.xml` pins some transitive dependencies above the versions managed 
 Acts as the centralized registry for the microservices cluster:
 * **Netflix Eureka Server:** Listens for service heartbeats, registers dynamic IP addresses and instance IDs, and distributes instance metadata.
 
+### Gateway Service
+Acts as the single entry point and edge router:
+* **Spring Cloud Gateway (WebFlux):** Reactive reverse proxy utilizing Eureka (`lb://`) for dynamic load-balancing and instance routing.
+* **Route Dispatch Rules:** Directs traffic to `/api/v1/orders/**`, `/api/v1/admin/licenses/**`, and `/webhooks/stripe/**` while shielding internal management endpoints.
 
 ### Inventory Service
 Handles high-concurrency stock tracking and reservation management:
@@ -129,6 +139,7 @@ Owns license keys and item identity:
 * **Atomic Key Allocation:** One key per item per order, claimed with `SKIP LOCKED` in a single transaction. All-or-nothing, and idempotent through a unique index on `(order_id, item_id)`.
 * **Failure Handling:** Pool exhaustion publishes `EntitlementFailedEvent` (separate transaction). Invariant violations (empty or duplicate items) go to the DLT.
 * **Outbox & Signing:** HMAC-signed events written through the transactional outbox.
+
 ---
 
 ## 🧩 Shared Common Modules
@@ -143,6 +154,7 @@ Owns license keys and item identity:
 | **gRPC Contract** | `orderflow-grpc-contract` | Protobuf definitions and generated stubs for synchronous inter-service gRPC calls |
 
 ---
+
 ## 🚀 Operations & Development Lifecycle
 
 ### 1. Build Shared Modules Locally
