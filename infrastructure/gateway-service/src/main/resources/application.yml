@@ -1,0 +1,57 @@
+# ── API & Server ──────────────────────────────────────────────
+server:
+  port: ${GATEWAY_PORT:8080}
+
+# ── Spring Boot Core ──────────────────────────────────────────
+spring:
+  application:
+    name: gateway-service
+
+# ── Spring Cloud Gateway ──────────────────────────────────────
+  cloud:
+    gateway:
+      server:
+        webflux:
+          discovery:
+            locator:
+              enabled: false
+          routes:
+            #  PROTECT INTERNAL ACTUATORS
+            - id: block-internal-actuator
+              uri: http://localhost # Dummy URI required by Gateway parser
+              predicates:
+                - Path=/*/actuator/**
+              filters:
+                - SetStatus=403
+
+            # ENTITLEMENT SERVICE
+            - id: entitlement-service
+              uri: lb://entitlement-service
+              predicates:
+                - Path=/api/v1/admin/licenses/**
+
+            # ORDER SERVICE
+            - id: order-service
+              uri: lb://order-service
+              predicates:
+                - Path=/api/v1/orders, /api/v1/orders/**
+
+            # PAYMENT SERVICE
+            - id: payment-service
+              uri: lb://payment-service
+              predicates:
+                - Path=/mock-stripe/payment_intents/**
+
+# ── Service Discovery ───────────────────────────────────────────
+eureka:
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${spring.application.instance_id:${random.value}}
+  client:
+    service-url:
+      defaultZone: ${DISCOVERY_SERVICE_URL:http://localhost:8761/eureka/}
+
+# ── Logging ─────────────────────────────────────────────────────
+logging:
+  level:
+    org.springframework.cloud.gateway: ${LOG_LEVEL_GATEWAY:DEBUG}

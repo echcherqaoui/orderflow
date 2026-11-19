@@ -62,8 +62,8 @@
         <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
 
         <!-- Security Overrides -->
-        <jackson3.version>3.2.3</jackson3.version>
-        <jackson2.version>2.22.3</jackson2.version>
+        <jackson3.version>3.2.4</jackson3.version>
+        <jackson2.version>2.22.4</jackson2.version>
         <httpclient.version>4.5.14</httpclient.version>
         <avro.version>1.11.5</avro.version>
         <logback.version>1.6.5</logback.version>
@@ -73,8 +73,11 @@
         <lz4-java.version>1.11.4</lz4-java.version>
         <snappy-java.version>1.1.10.9</snappy-java.version>
         <kafka_2.13.version>4.3.1</kafka_2.13.version>
-        <tomcat.version>11.0.26</tomcat.version>
         <netty.version>4.2.18.Final</netty.version>
+        <tomcat.version>11.0.27</tomcat.version>
+        <hibernate-validator.version>9.1.5.Final</hibernate-validator.version>
+        <kafka.version>4.2.2</kafka.version>
+        <commons-codec.version>1.23.0</commons-codec.version>
     </properties>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -116,7 +119,7 @@
     ════════════════════════════════════════════════════════════════ -->
     <dependencyManagement>
         <dependencies>
-            <!-- Fixes CVE-2026-89407, CVE-2026-89425, CVE-2026-68497, CVE-2026-91777, CVE-2026-91776, CVE-2026-83557, CVE-2026-19032 -->
+            <!-- Fixes CVE-2026-110879 CVE-2026-89407, CVE-2026-89425, CVE-2026-68497, CVE-2026-91777, CVE-2026-91776, CVE-2026-83557, CVE-2026-19032 -->
             <dependency>
                 <groupId>tools.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
@@ -125,7 +128,7 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- Fixes CVE-2026-89407, CVE-2026-89425, CVE-2026-68497, CVE-2026-91777, CVE-2026-91776, CVE-2026-83557, CVE-2026-19032 -->
+            <!-- Fixes CVE-2026-110879 CVE-2026-89407, CVE-2026-89425, CVE-2026-68497, CVE-2026-91777, CVE-2026-91776, CVE-2026-83557, CVE-2026-19032 -->
             <dependency>
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
@@ -329,14 +332,35 @@
                 <artifactId>kafka_2.13</artifactId>
                 <version>${kafka_2.13.version}</version>
             </dependency>
-        </dependencies>
-    </dependencyManagement>
 
-    <!-- ═══════════════════════════════════════════════════════════
-         BUILD & PLUGIN MANAGEMENT
-         Defines plugin configurations and versions once at the root.
-         Child modules inherit these settings when referencing the plugin.
-    ════════════════════════════════════════════════════════════════ -->
+            <!-- Fixes CVE-2026-93879 -->
+            <dependency>
+                <groupId>org.hibernate.validator</groupId>
+                <artifactId>hibernate-validator</artifactId>
+                <version>${hibernate-validator.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-110985, CVE-2026-111108, CVE-2026-111115, CVE-2026-111073, CVE-2026-114349, CVE-2026-111551 -->
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>kafka-clients</artifactId>
+                <version>${kafka.version}</version>
+            </dependency>
+
+            <!-- Fixes CVE-2026-119078 -->
+            <dependency>
+                <groupId>commons-codec</groupId>
+                <artifactId>commons-codec</artifactId>
+                <version>${commons-codec.version}</version>
+            </dependency>
+        </dependencies>
+</dependencyManagement>
+
+<!-- ═══════════════════════════════════════════════════════════
+ BUILD & PLUGIN MANAGEMENT
+ Defines plugin configurations and versions once at the root.
+ Child modules inherit these settings when referencing the plugin.
+════════════════════════════════════════════════════════════════ -->
     <build>
 
         <plugins>

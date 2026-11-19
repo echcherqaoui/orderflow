@@ -1,0 +1,23 @@
+# ── Spring Boot Core ──────────────────────────────────────────
+spring:
+  application:
+    name: discovery-service
+
+# ────── Server ──────────────────────────────────────────────
+server:
+  port: ${DISCOVERY_PORT:8761}
+
+# ── Service Discovery (Eureka Server) ─────────────────────────
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+
+# ── Actuator Management ─────────────────────────────────────────
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8585}
+  endpoints:
+    web:
+      exposure:
+        include: health, info
