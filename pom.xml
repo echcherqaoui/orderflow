@@ -17,6 +17,8 @@
         <module>common/orderflow-grpc-contract</module>
         <module>common/orderflow-events-contract</module>
 
+        <module>infrastructure/gateway-service</module>
+        <module>infrastructure/discovery-service</module>
         <module>services/entitlement-service</module>
         <module>services/inventory-service</module>
         <module>services/order-service</module>
@@ -42,8 +44,6 @@
 
         <!-- Annotation Processors -->
         <lombok.version>1.18.46</lombok.version>
-        <mapstruct.version>1.6.3</mapstruct.version>
-        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
 
         <!-- Protobuf & gRPC Code Generation Versions -->
         <grpc.version>1.69.1</grpc.version>
@@ -354,13 +354,13 @@
                 <version>${commons-codec.version}</version>
             </dependency>
         </dependencies>
-</dependencyManagement>
+    </dependencyManagement>
 
-<!-- ═══════════════════════════════════════════════════════════
- BUILD & PLUGIN MANAGEMENT
- Defines plugin configurations and versions once at the root.
- Child modules inherit these settings when referencing the plugin.
-════════════════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════════════════════════════════════════════
+     BUILD & PLUGIN MANAGEMENT
+     Defines plugin configurations and versions once at the root.
+     Child modules inherit these settings when referencing the plugin.
+    ════════════════════════════════════════════════════════════════ -->
     <build>
 
         <plugins>
@@ -397,11 +397,21 @@
                     <artifactId>maven-dependency-plugin</artifactId>
                     <version>${maven-dependency-plugin.version}</version>
                 </plugin>
+
+                <!-- Spring Boot Executable Packaging Plugin -->
                 <!-- Spring Boot Executable Packaging Plugin -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring-boot.version}</version>
+                    <executions>
+                        <execution>
+                            <id>repackage</id>
+                            <goals>
+                                <goal>repackage</goal>
+                            </goals>
+                        </execution>
+                    </executions>
                     <configuration>
                         <excludes>
                             <!-- Exclude Lombok from the final deployment fat-JAR -->
@@ -426,18 +436,6 @@
                                 <groupId>org.projectlombok</groupId>
                                 <artifactId>lombok</artifactId>
                                 <version>${lombok.version}</version>
-                            </path>
-                            <!-- MapStruct: Generates mapper implementations second -->
-                            <path>
-                                <groupId>org.mapstruct</groupId>
-                                <artifactId>mapstruct-processor</artifactId>
-                                <version>${mapstruct.version}</version>
-                            </path>
-                            <!-- Integration Bridge: Allows MapStruct to access Lombok-generated code -->
-                            <path>
-                                <groupId>org.projectlombok</groupId>
-                                <artifactId>lombok-mapstruct-binding</artifactId>
-                                <version>${lombok-mapstruct-binding.version}</version>
                             </path>
                         </annotationProcessorPaths>
                     </configuration>

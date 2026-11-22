@@ -1,0 +1,201 @@
+services:
+  # ─── Infrastructure ───────────────────────────────────────────
+  discovery-service:
+    build:
+      context: ../infrastructure/discovery-service
+    container_name: discovery-service-orderflow
+    ports:
+      - "${DISCOVERY_PORT}:${DISCOVERY_PORT}"
+    environment:
+      DISCOVERY_PORT: ${DISCOVERY_PORT}
+      MANAGEMENT_PORT: ${MANAGEMENT_PORT}
+    networks:
+      - orderflow-net
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:${MANAGEMENT_PORT}/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  gateway-service:
+    build:
+      context: ../infrastructure/gateway-service
+    container_name: gateway-service-orderflow
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    environment:
+      # Server
+      GATEWAY_PORT: ${GATEWAY_PORT}
+
+      # Discovery
+      DISCOVERY_SERVICE_URL: ${DISCOVERY_SERVICE_URL}
+
+      #Logging
+      LOG_LEVEL_GATEWAY: ${LOG_LEVEL_GATEWAY}
+
+    depends_on:
+      discovery-service:
+        condition: service_started
+
+    networks:
+      - orderflow-net
+    restart: unless-stopped
+
+  inventory-service:
+    build:
+      context: ../services/inventory-service
+      dockerfile: Dockerfile
+    container_name: inventory-service-orderflow
+    environment:
+      # Server
+      INVENTORY_SERVICE_PORT: ${INVENTORY_SERVICE_PORT}
+      INVENTORY_SERVICE_GRPC_PORT: ${INVENTORY_SERVICE_GRPC_PORT}
+
+      # Discovery
+      DISCOVERY_SERVICE_URL: ${DISCOVERY_SERVICE_URL}
+
+      # Database
+      DB_HOST: ${PG_HOST}
+      DB_PORT: ${PG_PORT}
+      INVENTORY_DB: ${INVENTORY_DB}
+      DB_USER: ${PG_USER}
+      DB_PASSWORD: ${PG_PASSWORD}
+
+      # Security Keys
+      HMAC_SECRET_KEY: ${HMAC_SECRET_KEY}
+
+      # Kafka
+      KF_BOOTSTRAP_SERVERS: ${KF_BOOTSTRAP_SERVERS}
+      KF_CONSUMER_GROUP_ID: ${KF_INVENTORY_CONSUMER_GROUP_ID}
+      SC_REGISTRY_URL: ${SC_REGISTRY_URL}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-0:
+        condition: service_healthy
+
+    networks:
+      - orderflow-net
+    restart: unless-stopped
+
+  order-service:
+    build:
+      context: ../services/order-service
+      dockerfile: Dockerfile
+    container_name: order-service-orderflow
+    environment:
+      # Server
+      ORDER_SERVICE_PORT: ${ORDER_SERVICE_PORT}
+
+      # Discovery
+      DISCOVERY_SERVICE_URL: ${DISCOVERY_SERVICE_URL}
+
+      # gRPC → inventory
+      INVENTORY_SERVICE_HOST: inventory-service
+      INVENTORY_SERVICE_GRPC_PORT: ${INVENTORY_SERVICE_GRPC_PORT}
+
+      # Database
+      DB_HOST: ${PG_HOST}
+      DB_PORT: ${PG_PORT}
+      ORDER_DB: ${ORDER_DB}
+      DB_USER: ${PG_USER}
+      DB_PASSWORD: ${PG_PASSWORD}
+
+      # Security Keys
+      HMAC_SECRET_KEY: ${HMAC_SECRET_KEY}
+
+      # Kafka
+      KF_BOOTSTRAP_SERVERS: ${KF_BOOTSTRAP_SERVERS}
+      KF_CONSUMER_GROUP_ID: ${KF_ORDER_CONSUMER_GROUP_ID}
+      SC_REGISTRY_URL: ${SC_REGISTRY_URL}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-0:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+
+    networks:
+      - orderflow-net
+    restart: unless-stopped
+
+  payment-service:
+    build:
+      context: ../services/payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service-orderflow
+    environment:
+      # Server
+      PAYMENT_SERVICE_PORT: ${PAYMENT_SERVICE_PORT}
+
+      # Discovery
+      DISCOVERY_SERVICE_URL: ${DISCOVERY_SERVICE_URL}
+
+      # Database
+      DB_HOST: ${PG_HOST}
+      DB_PORT: ${PG_PORT}
+      PAYMENT_DB: ${PAYMENT_DB}
+      DB_USER: ${PG_USER}
+      DB_PASSWORD: ${PG_PASSWORD}
+
+      # Security Keys
+      HMAC_SECRET_KEY: ${HMAC_SECRET_KEY}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+
+      # Kafka
+      KF_BOOTSTRAP_SERVERS: ${KF_BOOTSTRAP_SERVERS}
+      KF_CONSUMER_GROUP_ID: ${KF_PAYMENT_CONSUMER_GROUP_ID}
+      SC_REGISTRY_URL: ${SC_REGISTRY_URL}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-0:
+        condition: service_healthy
+
+    networks:
+      - orderflow-net
+    restart: unless-stopped
+
+  entitlement-service:
+    build:
+      context: ../services/entitlement-service
+      dockerfile: Dockerfile
+    container_name: entitlement-service-orderflow
+    environment:
+      # Server
+      ENTITLEMENT_SERVICE_PORT: ${ENTITLEMENT_SERVICE_PORT}
+
+      # Discovery
+      DISCOVERY_SERVICE_URL: ${DISCOVERY_SERVICE_URL}
+
+      # Database
+      DB_HOST: ${PG_HOST}
+      DB_PORT: ${PG_PORT}
+      ENTITLEMENT_DB: ${ENTITLEMENT_DB}
+      DB_USER: ${PG_USER}
+      DB_PASSWORD: ${PG_PASSWORD}
+
+      # Security Keys
+      HMAC_SECRET_KEY: ${HMAC_SECRET_KEY}
+
+      # Kafka
+      KF_BOOTSTRAP_SERVERS: ${KF_BOOTSTRAP_SERVERS}
+      KF_CONSUMER_GROUP_ID: ${KF_ENTITLEMENT_CONSUMER_GROUP_ID}
+      SC_REGISTRY_URL: ${SC_REGISTRY_URL}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-0:
+        condition: service_healthy
+
+    networks:
+      - orderflow-net
+    restart: unless-stopped

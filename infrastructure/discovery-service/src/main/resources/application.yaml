@@ -16,7 +16,7 @@ eureka:
 # ── Actuator Management ─────────────────────────────────────────
 management:
   server:
-    port: ${MANAGEMENT_PORT:8585}
+    port: ${MANAGEMENT_PORT:8070}
   endpoints:
     web:
       exposure:
