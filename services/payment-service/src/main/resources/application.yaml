@@ -18,9 +18,9 @@ spring:
 
   # ── Database (PostgreSQL/JPA) ───────────────────────────────
   datasource:
-    url: jdbc:postgresql://${PG_HOST:localhost}:${PG_PORT:5432}/${PAYMENT_DB:payment_db}
-    username: ${PG_USER:user}
-    password: ${PG_PASSWORD:pass}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${PAYMENT_DB:payment_db}
+    username: ${DB_USER:user}
+    password: ${DB_PASSWORD:pass}
 
   jpa:
     open-in-view: false
@@ -46,7 +46,7 @@ spring:
       value-serializer: io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer
 
     consumer:
-      group-id: ${KF_PAYMENT_CONSUMER_GROUP_ID:payment-service-group}
+      group-id: ${KF_CONSUMER_GROUP_ID:payment-service-group}
       auto-offset-reset: ${KF_AUTO_OFFSET_RESET:earliest}
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -77,7 +77,7 @@ management:
 app:
   security:
     hmac:
-      secret: ${HMAC_SECRET_KEY:dev_secret_key_123456789_local}
+      secret: ${HMAC_SECRET_KEY}
 
 orderflow:
   kafka:
