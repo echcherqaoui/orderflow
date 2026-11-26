@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.payment.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
+import com.echcherqaoui.orderflow.common.outbox.tracing.TraceContextProvider;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentCancelledEvent;
 import com.echcherqaoui.orderflow.contracts.payment.events.v1.PaymentChargedEvent;
@@ -37,6 +38,7 @@ public class OutboxWriter {
     private final OutboxEventRepository outboxEventRepository;
     private final SignatureService signatureService;
     private final KafkaProtobufSerializer<Message> serializer;
+    private final TraceContextProvider traceContextProvider;
 
     private void persist(@lombok.NonNull Message message,
                          @lombok.NonNull String orderId) {
@@ -48,6 +50,7 @@ public class OutboxWriter {
               .setAggregateId(orderId)
               .setEventType(message.getClass().getSimpleName())
               .setPayload(payload)
+              .setTraceparent(traceContextProvider.currentTraceparent())
               .setCreatedAt(Instant.now());
 
         outboxEventRepository.save(event);

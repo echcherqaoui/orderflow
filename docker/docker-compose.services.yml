@@ -8,11 +8,11 @@ services:
       - "${DISCOVERY_PORT}:${DISCOVERY_PORT}"
     environment:
       DISCOVERY_PORT: ${DISCOVERY_PORT}
-      MANAGEMENT_PORT: ${MANAGEMENT_PORT}
+      MANAGEMENT_PORT: ${DISCOVERY_MANAGEMENT_PORT}
     networks:
       - orderflow-net
     healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:${MANAGEMENT_PORT}/actuator/health" ]
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:${DISCOVERY_MANAGEMENT_PORT}/actuator/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -35,9 +35,11 @@ services:
       #Logging
       LOG_LEVEL_GATEWAY: ${LOG_LEVEL_GATEWAY}
 
+      #Observability
+      OTEL_TRACES_ENDPOINT: ${OTEL_TRACES_ENDPOINT}
     depends_on:
       discovery-service:
-        condition: service_started
+        condition: service_healthy
 
     networks:
       - orderflow-net
@@ -71,6 +73,9 @@ services:
       KF_CONSUMER_GROUP_ID: ${KF_INVENTORY_CONSUMER_GROUP_ID}
       SC_REGISTRY_URL: ${SC_REGISTRY_URL}
 
+      # Observability
+      OTEL_TRACES_ENDPOINT: ${OTEL_TRACES_ENDPOINT}
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,8 +91,6 @@ services:
       context: ../services/order-service
       dockerfile: Dockerfile
     container_name: order-service-orderflow
-    ports:
-      - "${MANAGEMENT_PORT}:${MANAGEMENT_PORT}"
     environment:
       # Server
       ORDER_SERVICE_PORT: ${ORDER_SERVICE_PORT}
@@ -113,6 +116,9 @@ services:
       KF_BOOTSTRAP_SERVERS: ${KF_BOOTSTRAP_SERVERS}
       KF_CONSUMER_GROUP_ID: ${KF_ORDER_CONSUMER_GROUP_ID}
       SC_REGISTRY_URL: ${SC_REGISTRY_URL}
+
+      #Observability
+      OTEL_TRACES_ENDPOINT: ${OTEL_TRACES_ENDPOINT}
 
     depends_on:
       postgres:
@@ -155,6 +161,9 @@ services:
       KF_CONSUMER_GROUP_ID: ${KF_PAYMENT_CONSUMER_GROUP_ID}
       SC_REGISTRY_URL: ${SC_REGISTRY_URL}
 
+      #Observability
+      OTEL_TRACES_ENDPOINT: ${OTEL_TRACES_ENDPOINT}
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,6 +195,9 @@ services:
 
       # Security Keys
       HMAC_SECRET_KEY: ${HMAC_SECRET_KEY}
+
+      #Observability
+      OTEL_TRACES_ENDPOINT: ${OTEL_TRACES_ENDPOINT}
 
       # Kafka
       KF_BOOTSTRAP_SERVERS: ${KF_BOOTSTRAP_SERVERS}

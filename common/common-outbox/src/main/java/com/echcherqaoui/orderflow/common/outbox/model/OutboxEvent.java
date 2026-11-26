@@ -39,6 +39,9 @@ public class OutboxEvent {
     @Column(nullable = false, updatable = false, columnDefinition = "BYTEA")
     private byte[] payload;
 
+    @Column(name = "traceparent", length = 55)
+    private String traceparent;
+
     @Id
     @Column(nullable = false, updatable = false, columnDefinition = "TIMESTAMP WITH TIME ZONE")
     private Instant createdAt;

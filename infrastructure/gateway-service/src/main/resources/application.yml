@@ -16,14 +16,6 @@ spring:
             locator:
               enabled: false
           routes:
-            #  PROTECT INTERNAL ACTUATORS
-            - id: block-internal-actuator
-              uri: http://localhost # Dummy URI required by Gateway parser
-              predicates:
-                - Path=/*/actuator/**
-              filters:
-                - SetStatus=403
-
             # ENTITLEMENT SERVICE
             - id: entitlement-service
               uri: lb://entitlement-service
@@ -41,7 +33,8 @@ spring:
               uri: lb://payment-service
               predicates:
                 - Path=/mock-stripe/payment_intents/**
-
+  reactor:
+    context-propagation: auto # Keeps trace context across reactive thread switches
 # ── Service Discovery ───────────────────────────────────────────
 eureka:
   instance:
@@ -55,3 +48,34 @@ eureka:
 logging:
   level:
     org.springframework.cloud.gateway: ${LOG_LEVEL_GATEWAY:DEBUG}
+
+
+# ── Observability ────────────────────────────────────────────────
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8070}      # Separate port for actuator
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus      # Only expose health and Prometheus metrics
+  endpoint:
+    health:
+      show-details: always      # Show component details (db, kafka) in health, dev only
+  otlp:
+    metrics:
+      export:
+        enabled: false      # Metrics are pulled by Prometheus, not pushed via OTLP
+  metrics:
+    tags:
+      application: ${spring.application.name}      # Adds the service name to every metric
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true      # Enables p95/p99 on HTTP latency
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_TRACES_ENDPOINT}      # Where traces are sent (Tempo)
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}      # Share of requests traced (1.0 = all, lower in prod)

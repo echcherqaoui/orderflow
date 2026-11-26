@@ -46,9 +46,15 @@ spring:
   # ── Kafka Messaging ─────────────────────────────────────────
   kafka:
     bootstrap-servers: ${KF_BOOTSTRAP_SERVERS:localhost:9092}
+
+    template:
+      observation-enabled: true
+
     listener:
       concurrency: 3
       ack-mode: manual_immediate
+      observation-enabled: true
+
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer
@@ -69,6 +75,36 @@ spring:
       reference.subject.name.strategy: io.confluent.kafka.serializers.subject.QualifiedReferenceSubjectNameStrategy
       auto.register.schemas: false
       use.latest.version: true
+
+# ── Observability ────────────────────────────────────────────────
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8072}      # Separate port for actuator
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus      # Only expose health and Prometheus metrics
+  endpoint:
+    health:
+      show-details: always      # Show component details (db, kafka) in health, dev only
+  otlp:
+    metrics:
+      export:
+        enabled: false      # Metrics are pulled by Prometheus, not pushed via OTLP
+  metrics:
+    tags:
+      application: ${spring.application.name}      # Adds the service name to every metric
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true      # Enables p95/p99 on HTTP latency
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_TRACES_ENDPOINT}      # Where traces are sent (Tempo)
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}      # Share of requests traced (1.0 = all, lower in prod)
 
 # ── Inventory Config ─────────────────────────────────────────────
 app:
