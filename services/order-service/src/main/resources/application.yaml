@@ -70,6 +70,32 @@ spring:
       auto.register.schemas: false
       use.latest.version: true
 
+# ── Circuit Breaker (order → inventory gRPC) ─────────────────────
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - com.echcherqaoui.orderflow.exception.grpc.DownstreamDependencyException
+
+# ── Actuator ─────────────────────────────────────────────────────
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8070}
+  endpoints:
+    web:
+      exposure:
+        include: health, circuitbreakers
+  health:
+    circuitbreakers:
+      enabled: true
+
 # ── Order Config ─────────────────────────────────────────────
 app:
   security:

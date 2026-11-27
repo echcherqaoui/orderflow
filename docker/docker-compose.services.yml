@@ -86,6 +86,8 @@ services:
       context: ../services/order-service
       dockerfile: Dockerfile
     container_name: order-service-orderflow
+    ports:
+      - "${MANAGEMENT_PORT}:${MANAGEMENT_PORT}"
     environment:
       # Server
       ORDER_SERVICE_PORT: ${ORDER_SERVICE_PORT}
