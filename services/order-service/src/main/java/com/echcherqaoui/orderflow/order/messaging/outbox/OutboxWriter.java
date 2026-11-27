@@ -2,6 +2,7 @@ package com.echcherqaoui.orderflow.order.messaging.outbox;
 
 import com.echcherqaoui.orderflow.common.outbox.model.OutboxEvent;
 import com.echcherqaoui.orderflow.common.outbox.repository.OutboxEventRepository;
+import com.echcherqaoui.orderflow.common.outbox.tracing.TraceContextProvider;
 import com.echcherqaoui.orderflow.contracts.common.v1.MessageMetadata;
 import com.echcherqaoui.orderflow.contracts.entitlement.commands.v1.GrantEntitlementCommand;
 import com.echcherqaoui.orderflow.contracts.inventory.commands.v1.ConfirmReservationCommand;
@@ -46,8 +47,10 @@ public class OutboxWriter {
     private final SignatureService signatureService;
     private final KafkaProtobufSerializer<Message> serializer;
 
+    private final TraceContextProvider traceContextProvider;
+
     private void persist(@lombok.NonNull Message message,
-                         @lombok.NonNull String orderId,
+                         @lombok.NonNull String aggregateId,
                          @lombok.NonNull String aggregateType) {
         String topic = TOPIC_PREFIX + aggregateType;
         byte[] payload = serializer.serialize(topic, message);
@@ -55,9 +58,10 @@ public class OutboxWriter {
         OutboxEvent event = new OutboxEvent()
               .setId(UUID.randomUUID())
               .setAggregateType(aggregateType)
-              .setAggregateId(orderId)
+              .setAggregateId(aggregateId)
               .setEventType(message.getClass().getSimpleName())
               .setPayload(payload)
+              .setTraceparent(traceContextProvider.currentTraceparent())
               .setCreatedAt(Instant.now());
 
         outboxEventRepository.save(event);

@@ -1,6 +1,9 @@
 package com.echcherqaoui.orderflow.common.outbox.autoconfigure;
 
 import com.echcherqaoui.orderflow.common.outbox.partition.OutboxPartitionManager;
+import com.echcherqaoui.orderflow.common.outbox.tracing.TraceContextProvider;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackage;
@@ -29,5 +32,11 @@ public class OutboxAutoConfiguration {
               retentionDays,
               futureDays
         );
+    }
+
+    /** Builds the W3C traceparent of the current span, stored in the outbox row for Debezium. */
+    @Bean
+    TraceContextProvider traceContextProvider(Tracer tracer, Propagator propagator) {
+        return new TraceContextProvider(tracer, propagator);
     }
 }

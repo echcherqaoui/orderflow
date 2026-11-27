@@ -54,15 +54,15 @@
         <!-- Confluent Schema Registry Protobuf Serializer for Kafka event serialization -->
         <kafka-protobuf-serializer.version>7.7.7</kafka-protobuf-serializer.version>
 
-        <!-- Schema Registry endpoint used by the plugin for schema registration -->
-        <schema.registry.url>http://localhost:8181</schema.registry.url>
-
         <!-- Build Plugin Versions -->
         <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
         <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
 
         <!-- Resilience -->
         <resilience4j.version>2.4.0</resilience4j.version>
+
+        <!-- Okio (I/O library), version pinned to override the transitive one from the Confluent Protobuf serializer -->
+        <okio.version>3.16.0</okio.version>
 
         <!-- Security Overrides -->
         <jackson3.version>3.2.4</jackson3.version>
@@ -81,6 +81,9 @@
         <hibernate-validator.version>9.1.5.Final</hibernate-validator.version>
         <kafka.version>4.2.2</kafka.version>
         <commons-codec.version>1.23.0</commons-codec.version>
+
+        <!-- Schema Registry endpoint used by the plugin for schema registration -->
+        <schema.registry.url>http://localhost:8181</schema.registry.url>
     </properties>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -256,6 +259,13 @@
                 <groupId>io.github.resilience4j</groupId>
                 <artifactId>resilience4j-spring-boot4</artifactId>
                 <version>${resilience4j.version}</version>
+            </dependency>
+
+            <!-- Okio, pinned explicitly to override the transitive version pulled in by the Confluent Protobuf serializer -->
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-jvm</artifactId>
+                <version>${okio.version}</version>
             </dependency>
 
             <!-- Fixes CVE-2020-13956 -->
